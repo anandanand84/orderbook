@@ -1,0 +1,16 @@
+[package]
+name = "orderbook"
+version = "0.1.0"
+authors = ["Anand Aravindan <anand.anand84@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bytes = "0.4.11"`
+bincode = "1.1.2"
+prost = "0.5.0"
+num-traits = "0.2.8"
+bigdecimal = "0.1.0"
+stock_messages = { git = "https://github.com/anandanand84/stock_messages" }
+lazy_static = "1.4.0"
