@@ -1,10 +1,8 @@
 extern crate bincode;
 extern crate prost;
 extern crate stock_messages;
-
 mod book;
 
-use book::book::{OrderBook, OrderType};
 use bytes::{Bytes, BytesMut};
 use stock_messages::stock_messages::{SnapshotMessage, Side, LevelUpdate};
 use prost::Message;
@@ -13,6 +11,7 @@ use std::collections::{HashMap};
 #[macro_use]
 extern crate lazy_static;
 
+pub use book::book::{OrderBook, OrderType};
 
 lazy_static! {
     pub static ref BOOK_MAP: HashMap<String, OrderBook> = {
