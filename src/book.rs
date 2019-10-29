@@ -1,11 +1,14 @@
 extern crate stock_messages;
 pub mod book {
-    use stock_messages::stock_messages::{SnapshotMessage, PriceLevel, BookInfo, Type};
+    use stock_messages::stock_messages::{Side, SnapshotMessage, PriceLevel, BookInfo, Type, LevelUpdate};
     use std::collections::BTreeMap;
+    use prost::Message;
     use num_traits::identities::Zero;
     use std::ops::{Mul, Add, Sub};
     use std::convert::TryInto;
+    use std::convert::TryFrom;
     use bigdecimal::BigDecimal;
+    use std::error::Error;
     use num_traits::cast::ToPrimitive;
 
     pub type Price = BigDecimal;
@@ -86,6 +89,19 @@ pub mod book {
            book
         }
     }
+    
+    impl TryFrom<Vec<u8>> for OrderBook {
+        type Error = &'static str;
+        fn try_from(buf: Vec<u8>) -> Result<Self, Self::Error> {
+            let snapshot_decode = SnapshotMessage::decode(buf);
+            match snapshot_decode {
+                Ok(snapshot) => {
+                    Ok(OrderBook::from(snapshot))
+                },
+                Err(_) => Err("Failed to decode the snapshot")
+            }
+        }
+    }
 
     impl Into<SnapshotMessage> for OrderBook {
         fn into(self: OrderBook) -> SnapshotMessage {
@@ -128,6 +144,25 @@ pub mod book {
                 asks_total: BigDecimal::zero(),
                 asks_value_total: BigDecimal::zero(),
             }
+        }
+
+        pub fn update_level(&mut self, bytes: Vec<u8>) {
+            let level_message:LevelUpdate = LevelUpdate::decode(bytes).unwrap();
+            if level_message.size == 0.0 {
+                self.remove_level(OrderType::Bid, level_message.price, level_message.sequence as u64);
+                self.remove_level(OrderType::Ask, level_message.price, level_message.sequence as u64);
+                ()
+            }
+            let side = Side::from_i32(level_message.side).unwrap();
+            match  side {
+                Side::Buy => {
+                    self.add_level(OrderType::Bid, level_message.price, level_message.size, level_message.sequence as u64);
+                },
+                Side::Sell => {
+                    self.add_level(OrderType::Ask, level_message.price, level_message.size, level_message.sequence as u64);
+                }
+            }
+            ()
         }
         
         pub fn add_level(&mut self, order_type: OrderType, price:f64, size:f64, sequence:u64) {
