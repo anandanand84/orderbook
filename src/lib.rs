@@ -3,9 +3,6 @@ extern crate prost;
 extern crate stock_messages;
 mod book;
 
-use bytes::{Bytes, BytesMut};
-use stock_messages::stock_messages::{SnapshotMessage, Side, LevelUpdate};
-use prost::Message;
 use std::collections::{HashMap};
 
 #[macro_use]

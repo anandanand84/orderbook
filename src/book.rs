@@ -8,7 +8,6 @@ pub mod book {
     use std::convert::TryInto;
     use std::convert::TryFrom;
     use bigdecimal::BigDecimal;
-    use std::error::Error;
     use num_traits::cast::ToPrimitive;
 
     pub type Price = BigDecimal;
@@ -231,6 +230,11 @@ mod tests {
     // Note this useful idiom: importing names from outer (for mod tests) scope.
     use super::book::{OrderBook, OrderType};
     use num_traits::cast::ToPrimitive;
+    use std::convert::TryInto;
+    use stock_messages::stock_messages::{ SnapshotMessage};
+    use bytes::{ BytesMut};
+    use prost::Message;
+    use std::error::Error;
 
     fn create_asks(book: &mut OrderBook) {
         (100..200).into_iter()
@@ -273,9 +277,24 @@ mod tests {
     
     #[test]
     fn test_create_snapshot() {
-        let mut book = OrderBook::new("instrument", 100);
-        create_asks(&mut book);
-        create_bids(&mut book);
-        assert_eq!(10, 10);
+        let bytes = std::fs::read("/Users/AAravindan/snapshots/Binance:BTC_USDT").unwrap();
+        let book:OrderBook  = bytes.try_into().unwrap();
+        assert_eq!(book.instrument, "Binance:BTC/USDT");
     }
+    
+    #[test]
+    fn get_snapshot() {
+        let bytes = std::fs::read("/Users/AAravindan/snapshots/Binance:BTC_USDT").unwrap();
+        let book:OrderBook  = bytes.clone().try_into().unwrap();
+        let snapshot:SnapshotMessage = book.clone().into();
+        let mut buffer:Vec<u8> = Vec::new();
+        let result = snapshot.encode(&mut buffer);
+        match(result) {
+            Ok(_)=>{},
+            Err(err)=> println!("Error : {}", err.description())
+        }
+        assert_eq!(buffer.len(), 58083);
+        assert_eq!(snapshot.product_id, "Binance:BTC/USDT");
+    }
+
 }
