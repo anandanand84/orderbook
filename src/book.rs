@@ -9,13 +9,13 @@ pub mod book {
     use std::convert::TryFrom;
     use bigdecimal::BigDecimal;
     use num_traits::cast::ToPrimitive;
-
+    
     pub type Price = BigDecimal;
 
     pub type Size = BigDecimal;
 
     pub type Value = BigDecimal;
-
+    
     #[derive(Debug, Hash, Eq, PartialEq, Clone)]
     pub struct Level {
         pub price : Price,
@@ -47,9 +47,9 @@ pub mod book {
     impl Into<PriceLevel> for Level {
         fn into(self) -> PriceLevel{
             PriceLevel {
-                price: 0.0f64,
-                total_size: 0.0f64,
-                total_value: 0.0f64,
+                price: self.price.clone().to_f64().unwrap_or(0f64),
+                total_size: self.size.clone().to_f64().unwrap_or(0f64),
+                total_value: BigDecimal::from(self.price).mul(BigDecimal::from(self.size)).clone().to_f64().unwrap_or(0f64),
             }
         }
     }
@@ -58,12 +58,12 @@ pub mod book {
     pub struct OrderBook {
         pub instrument : String,
         pub sequence: u64,
-        bids : BTreeMap<Price, Level>,
-        asks : BTreeMap<Price, Level>,
-        bids_total: Size,
-        bids_value_total: Value,
-        asks_total: Size,
-        asks_value_total: Value,
+        pub bids : BTreeMap<Price, Level>,
+        pub asks : BTreeMap<Price, Level>,
+        pub bids_total: Size,
+        pub bids_value_total: Value,
+        pub asks_total: Size,
+        pub asks_value_total: Value,
         // orderPool: OrderPool = {};
     }
 
@@ -228,7 +228,7 @@ pub mod book {
 #[cfg(test)]
 mod tests {
     // Note this useful idiom: importing names from outer (for mod tests) scope.
-    use super::book::{OrderBook, OrderType};
+    use super::book::{OrderBook, OrderType, Level};
     use num_traits::cast::ToPrimitive;
     use std::convert::TryInto;
     use stock_messages::stock_messages::{ SnapshotMessage};
@@ -277,24 +277,46 @@ mod tests {
     
     #[test]
     fn test_create_snapshot() {
-        let bytes = std::fs::read("/Users/AAravindan/snapshots/Binance:BTC_USDT").unwrap();
+        let bytes = std::fs::read("/Users/AAravindan/dev/orderbook/snapshots/Binance:BTC_USDT").unwrap();
         let book:OrderBook  = bytes.try_into().unwrap();
         assert_eq!(book.instrument, "Binance:BTC/USDT");
     }
     
     #[test]
     fn get_snapshot() {
-        let bytes = std::fs::read("/Users/AAravindan/snapshots/Binance:BTC_USDT").unwrap();
-        let book:OrderBook  = bytes.clone().try_into().unwrap();
+        let bytes = std::fs::read("/Users/AAravindan/dev/orderbook/snapshots/Binance:BTC_USDT").unwrap();
+        let mut book:OrderBook  = bytes.clone().try_into().unwrap();
         let snapshot:SnapshotMessage = book.clone().into();
-        let mut buffer:Vec<u8> = Vec::new();
-        let result = snapshot.encode(&mut buffer);
-        match(result) {
-            Ok(_)=>{},
-            Err(err)=> println!("Error : {}", err.description())
-        }
-        assert_eq!(buffer.len(), 58083);
-        assert_eq!(snapshot.product_id, "Binance:BTC/USDT");
+
+        let snapshot:SnapshotMessage = book.clone().into();
+        let mut buf:Vec<u8> = Vec::new();
+        snapshot.encode(&mut buf);
+
+        book = buf.clone().try_into().unwrap();
+
+        print_book(book.clone(), 50 as usize);
+        
+        let bid_level = book.bids.iter().rev().take(1).map(|(a,b)| b.clone()).collect::<Vec<Level>>();
+        let ask_level = book.asks.iter().take(1).map(|(a,b)| b.clone()).collect::<Vec<Level>>();
+        assert_eq!(ask_level[0].price.to_f64().unwrap(), 9017.78f64);
+        assert_eq!(ask_level[0].size.to_f64().unwrap(), 0.170818f64);
+        assert_eq!(bid_level[0].price.to_f64().unwrap(),  9015.85f64);
+        assert_eq!(bid_level[0].size.to_f64().unwrap(), 0.027722000000000004f64);
+
+
+        // let mut buffer:Vec<u8> = Vec::new();
+        // let result = snapshot.encode(&mut buffer);
+        // match(result) {
+        //     Ok(_)=>{},
+        //     Err(err)=> println!("Error : {}", err.description())
+        // }
+        // println!("Loaded book {:?}", book.instrument);
+        // assert_eq!(snapshot.product_id, book.instrument);
+        // assert_eq!(snapshot.bids.len(), 1000);
+        // assert_eq!(snapshot.bids.len(), book.bids.len());
+        // assert_eq!(snapshot.asks.len(), book.asks.len());
+        // assert_eq!(buffer.len(), 58083);
+        // assert_eq!(snapshot.product_id, "Binance:BTC/USDT");
     }
 
 }

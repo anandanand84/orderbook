@@ -8,7 +8,7 @@ use std::collections::{HashMap};
 #[macro_use]
 extern crate lazy_static;
 
-pub use book::book::{OrderBook, OrderType};
+pub use book::book::{OrderBook, OrderType, Level};
 
 lazy_static! {
     pub static ref BOOK_MAP: HashMap<String, OrderBook> = {
