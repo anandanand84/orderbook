@@ -145,12 +145,12 @@ pub mod book {
             }
         }
 
-        pub fn update_level(&mut self, bytes: Vec<u8>) {
+        pub fn update_level(&mut self, bytes: Vec<u8>) -> bool{
             let level_message:LevelUpdate = LevelUpdate::decode(bytes).unwrap();
             if level_message.size == 0.0 {
                 self.remove_level(OrderType::Bid, level_message.price, level_message.sequence as u64);
                 self.remove_level(OrderType::Ask, level_message.price, level_message.sequence as u64);
-                ()
+                return true
             }
             let side = Side::from_i32(level_message.side).unwrap();
             match  side {
@@ -161,7 +161,7 @@ pub mod book {
                     self.add_level(OrderType::Ask, level_message.price, level_message.size, level_message.sequence as u64);
                 }
             }
-            ()
+            true
         }
         
         pub fn add_level(&mut self, order_type: OrderType, price:f64, size:f64, sequence:u64) {
