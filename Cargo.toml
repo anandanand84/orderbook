@@ -15,3 +15,4 @@ bigdecimal = "0.1.0"
 stock_messages = { git = "https://github.com/anandanand84/stock_messages" }
 lazy_static = "1.4.0"
 serde = { version = "1.0.102", features = ["derive"] }
+itertools = "0.8.1"

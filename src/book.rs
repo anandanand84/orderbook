@@ -1,15 +1,38 @@
 extern crate stock_messages;
+extern crate serde;
 pub mod book {
     use stock_messages::stock_messages::{Side, SnapshotMessage, PriceLevel, BookInfo, Type, LevelUpdate};
     use std::collections::BTreeMap;
     use prost::Message;
     use num_traits::identities::Zero;
-    use std::ops::{Mul, Add, Sub};
+    use std::ops::{Mul, Add, Sub, Div};
     use std::convert::TryInto;
     use std::convert::TryFrom;
     use bigdecimal::BigDecimal;
     use num_traits::cast::ToPrimitive;
+    use itertools::{ GroupBy };
+    use crate::itertools::Itertools;
+    use serde::{Serialize, Deserialize};
+
+
     
+    // use bigdecimal::BigDecimal;
+    // use bigdecimal::ToPrimitive;
+    // use std::ops::{Mul, Add, Sub, Div};
+
+    pub fn group_decimal(price:f64, group_size:f64, group_lower:bool) -> f64{
+        let quotient = (price / group_size) as u64;
+        let quotient_decimal = if group_lower { quotient } else { quotient + 1 };
+        (quotient_decimal as f64) * group_size
+    }
+
+    pub fn group_bigdecimal(price_decimal:BigDecimal, group_decimal:BigDecimal, group_lower:bool) -> BigDecimal{
+        let quotient = price_decimal.div(group_decimal.clone()).to_i64().unwrap();
+        let quotient_decimal = if group_lower { quotient } else { quotient + 1 };
+        BigDecimal::from(quotient_decimal).mul(group_decimal)
+    }
+
+
     pub type Price = BigDecimal;
 
     pub type Size = BigDecimal;
@@ -53,6 +76,16 @@ pub mod book {
             }
         }
     }
+    
+    impl Into<SnapshotLevel> for Level {
+        fn into(self) -> SnapshotLevel{
+            SnapshotLevel {
+                price: self.price.clone().to_f64().unwrap_or(0f64),
+                total_size: self.size.clone().to_f64().unwrap_or(0f64),
+                total_value: BigDecimal::from(self.price).mul(BigDecimal::from(self.size)).clone().to_f64().unwrap_or(0f64),
+            }
+        }
+    }
 
     #[derive(Debug, Clone)]
     pub struct OrderBook {
@@ -66,6 +99,59 @@ pub mod book {
         pub asks_value_total: Value,
         // orderPool: OrderPool = {};
     }
+
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct SnapshotLevel {
+        price : f64,
+        total_size : f64,
+        total_value : f64
+    }
+
+    impl SnapshotLevel {
+        pub fn new() -> SnapshotLevel {
+            SnapshotLevel {
+                price : 0.0,
+                total_size : 0.0,
+                total_value : 0.0
+            }
+        }
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct OrderBookInfo {
+        asks_total : f64,
+        asks_value_total : f64,
+        bids_value_total : f64,
+        bids_total : f64,
+        spread : String,
+        sequence: u64
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct OrderBookSnapshot {
+        instrument : String, //"Bittrex:ETH/USDT"
+        time :u64,  //"2017-10-14T20:08:50.920Z"
+        info : OrderBookInfo,
+        asks : Vec<SnapshotLevel>,
+        bids : Vec<SnapshotLevel>
+    }
+
+
+    // impl From<OrderBook> for OrderBookSnapshot {
+    //     fn from(book:OrderBook) -> Self {
+    //         OrderBookSnapshot {
+    //             instrument: book.instrument.to_owned(),
+    //             sequence : book.sequence,
+    //             bids : book.bids.values().into_iter().cloned().collect::<Vec<_>>(),
+    //             asks : book.asks.values().into_iter().cloned().collect::<Vec<_>>(),
+    //             bids_total : book.bids_total,
+    //             bids_value_total : book.bids_value_total,
+    //             asks_total : book.asks_total,
+    //             asks_value_total : book.asks_value_total
+    //         }
+    //     }
+    // }
 
     impl From<SnapshotMessage> for OrderBook {
         fn from(snapshot: SnapshotMessage) -> Self {
@@ -221,6 +307,68 @@ pub mod book {
             .collect::<Vec<Level>>();
 
             (bids, asks)
+        }
+
+        pub fn get_grouped_snapshot(&self, group:f64, count: usize) -> OrderBookSnapshot {
+            let asks = self.asks.iter()
+            .map(|(x,y)|{ 
+                let snapshot_level:SnapshotLevel = y.clone().into();
+                snapshot_level
+            })
+            .group_by(|level| {
+                group_decimal(level.price, group, false)
+            })
+            .into_iter()
+            .map(|(grouped_price, grouped_levels)| {
+                let mut level = SnapshotLevel::new();
+                level.price = grouped_price;
+                grouped_levels.fold(&mut level, |level, current_level| {
+                    level.total_size = level.total_size + current_level.total_size;
+                    level.total_value = level.total_value + current_level.total_value;
+                    level
+                });
+                level.into()
+            })
+            .take(count as usize)
+            .collect::<Vec<SnapshotLevel>>();
+
+            let bids = self.bids.iter().rev()
+            .map(|(x,y)|{ 
+                let snapshot_level:SnapshotLevel = y.clone().into();
+                snapshot_level
+            })
+            .group_by(|level| {
+                group_decimal(level.price, group, true)
+            })
+            .into_iter()
+            .map(|(grouped_price, grouped_levels)| {
+                let mut level = SnapshotLevel::new();
+                level.price = grouped_price;
+                grouped_levels.fold(&mut level, |level, current_level| {
+                    level.total_size = level.total_size + current_level.total_size;
+                    level.total_value = level.total_value + current_level.total_value;
+                    level
+                });
+                level.into()
+            })
+            .take(count as usize)
+            .collect::<Vec<SnapshotLevel>>();
+            
+
+            OrderBookSnapshot {
+                instrument: self.instrument.to_owned(),
+                bids : bids,
+                time : 0u64,
+                asks : asks,
+                info : OrderBookInfo {
+                    bids_total : self.bids_total.to_f64().unwrap_or(0.0),
+                    bids_value_total : self.bids_value_total.to_f64().unwrap_or(0.0),
+                    asks_total : self.asks_total.to_f64().unwrap_or(0.0),
+                    asks_value_total : self.asks_value_total.to_f64().unwrap_or(0.0),
+                    spread : "".to_owned(),
+                    sequence : self.sequence
+                }
+            }
         }
     }
 }
