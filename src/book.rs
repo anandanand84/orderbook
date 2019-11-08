@@ -420,7 +420,77 @@ mod tests {
         create_asks(&mut book);
         create_bids(&mut book);
         print_book(book, 50 as usize);
-        assert_eq!(10, 10);
+    }
+
+
+    fn get_first_ask_and_bid(book:&OrderBook) -> ((f64,f64), (f64,f64)) {
+        let first_ask = book.asks.values().take(1)
+            .map(|level| (level.price.to_f64().unwrap(), level.size.to_f64().unwrap()))
+            .collect::<Vec<(f64,f64)>>()[0];
+        let first_bid = book.bids.values().rev().take(1)
+            .map(|level| (level.price.to_f64().unwrap(), level.size.to_f64().unwrap()))
+            .collect::<Vec<(f64,f64)>>()[0];
+        return (first_ask, first_bid);
+    }
+
+    #[test]
+
+    fn test_grouped_snapshot() {
+        let mut book = OrderBook::new("instrument", 100);
+        create_asks(&mut book);
+        create_bids(&mut book);
+
+        
+
+    }
+
+    #[test]
+    fn test_update_level() {
+        let mut book = OrderBook::new("instrument", 100);
+        create_asks(&mut book);
+        create_bids(&mut book);
+
+        //Verify initial state
+        let (first_ask, first_bid) = get_first_ask_and_bid(&book);
+
+        assert_eq!(first_ask.0, 100.0);
+        assert_eq!(first_ask.1, 100.0);
+        assert_eq!(first_bid.0, 99.0);
+        assert_eq!(first_bid.1, 99.0);
+
+        // ADD NEW LEVEL
+        book.add_level(OrderType::Bid, 99.1, 99.1, 2);
+        book.add_level(OrderType::Ask, 99.9, 99.9, 2);
+
+        let (first_ask, first_bid) = get_first_ask_and_bid(&book);
+
+        assert_eq!(first_ask.0, 99.9);
+        assert_eq!(first_ask.1, 99.9);
+        assert_eq!(first_bid.0, 99.1);
+        assert_eq!(first_bid.1, 99.1);
+        
+        // Update BID LEVEL
+        book.add_level(OrderType::Bid, 99.1, 99.2, 2);
+        book.add_level(OrderType::Ask, 99.9, 99.8, 2);
+
+        let (first_ask, first_bid) = get_first_ask_and_bid(&book);
+
+        assert_eq!(first_ask.0, 99.9); //price
+        assert_eq!(first_ask.1, 99.8); //size
+        assert_eq!(first_bid.0, 99.1); //price
+        assert_eq!(first_bid.1, 99.2); //size
+        
+        // Remove LEVEL
+        book.remove_level(OrderType::Bid, 99.1, 2);
+        book.remove_level(OrderType::Ask, 99.9, 2);
+
+        let (first_ask, first_bid) = get_first_ask_and_bid(&book);
+
+        assert_eq!(first_ask.0, 100.0);
+        assert_eq!(first_ask.1, 100.0);
+        assert_eq!(first_bid.0, 99.0);
+        assert_eq!(first_bid.1, 99.0);
+
     }
     
     #[test]
@@ -450,21 +520,6 @@ mod tests {
         assert_eq!(ask_level[0].size.to_f64().unwrap(), 0.170818f64);
         assert_eq!(bid_level[0].price.to_f64().unwrap(),  9015.85f64);
         assert_eq!(bid_level[0].size.to_f64().unwrap(), 0.027722000000000004f64);
-
-
-        // let mut buffer:Vec<u8> = Vec::new();
-        // let result = snapshot.encode(&mut buffer);
-        // match(result) {
-        //     Ok(_)=>{},
-        //     Err(err)=> println!("Error : {}", err.description())
-        // }
-        // println!("Loaded book {:?}", book.instrument);
-        // assert_eq!(snapshot.product_id, book.instrument);
-        // assert_eq!(snapshot.bids.len(), 1000);
-        // assert_eq!(snapshot.bids.len(), book.bids.len());
-        // assert_eq!(snapshot.asks.len(), book.asks.len());
-        // assert_eq!(buffer.len(), 58083);
-        // assert_eq!(snapshot.product_id, "Binance:BTC/USDT");
     }
 
 }
