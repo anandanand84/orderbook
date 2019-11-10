@@ -5,12 +5,11 @@ pub mod book {
     use std::collections::BTreeMap;
     use prost::Message;
     use num_traits::identities::Zero;
-    use std::ops::{Mul, Add, Sub, Div};
+    use std::ops::{Mul, Add, Sub};
     use std::convert::TryInto;
     use std::convert::TryFrom;
     use bigdecimal::BigDecimal;
     use num_traits::cast::ToPrimitive;
-    use itertools::{ GroupBy };
     use crate::itertools::Itertools;
     use serde::{Serialize, Deserialize};
 
@@ -26,11 +25,11 @@ pub mod book {
         (quotient_decimal as f64) * group_size
     }
 
-    pub fn group_bigdecimal(price_decimal:BigDecimal, group_decimal:BigDecimal, group_lower:bool) -> BigDecimal{
-        let quotient = price_decimal.div(group_decimal.clone()).to_i64().unwrap();
-        let quotient_decimal = if group_lower { quotient } else { quotient + 1 };
-        BigDecimal::from(quotient_decimal).mul(group_decimal)
-    }
+    // pub fn group_bigdecimal(price_decimal:BigDecimal, group_decimal:BigDecimal, group_lower:bool) -> BigDecimal{
+    //     let quotient = price_decimal.div(group_decimal.clone()).to_i64().unwrap();
+    //     let quotient_decimal = if group_lower { quotient } else { quotient + 1 };
+    //     BigDecimal::from(quotient_decimal).mul(group_decimal)
+    // }
 
 
     pub type Price = BigDecimal;
@@ -83,6 +82,7 @@ pub mod book {
                 price: self.price.clone().to_f64().unwrap_or(0f64),
                 total_size: self.size.clone().to_f64().unwrap_or(0f64),
                 total_value: BigDecimal::from(self.price).mul(BigDecimal::from(self.size)).clone().to_f64().unwrap_or(0f64),
+                relative_size : 0
             }
         }
     }
@@ -103,6 +103,7 @@ pub mod book {
 
     #[derive(Debug, Serialize, Deserialize)]
     pub struct SnapshotLevel {
+        relative_size : i64,
         price : f64,
         total_size : f64,
         total_value : f64
@@ -113,7 +114,8 @@ pub mod book {
             SnapshotLevel {
                 price : 0.0,
                 total_size : 0.0,
-                total_value : 0.0
+                total_value : 0.0,
+                relative_size : 0
             }
         }
     }
@@ -309,9 +311,21 @@ pub mod book {
             (bids, asks)
         }
 
+        pub fn get_spread_percent(&self) -> f64 {
+            let bid:f64 = self.bids.keys().rev().take(1).map(|bigdec| bigdec.to_f64().unwrap()).sum();
+            let ask:f64 = self.asks.keys().take(1).map(|bigdec| bigdec.to_f64().unwrap()).sum();
+            return ((ask - bid) / bid) * 100.0 ;
+        }
+
+        pub fn get_spread(&self) -> f64{
+            let bid:f64 = self.bids.keys().rev().take(1).map(|bigdec| bigdec.to_f64().unwrap()).sum();
+            let ask:f64 = self.asks.keys().take(1).map(|bigdec| bigdec.to_f64().unwrap()).sum();
+            return ask - bid;
+        }
+
         pub fn get_grouped_snapshot(&self, group:f64, count: usize) -> OrderBookSnapshot {
-            let asks = self.asks.iter()
-            .map(|(x,y)|{ 
+            let mut asks = self.asks.iter()
+            .map(|(_x,y)|{ 
                 let snapshot_level:SnapshotLevel = y.clone().into();
                 snapshot_level
             })
@@ -332,8 +346,8 @@ pub mod book {
             .take(count as usize)
             .collect::<Vec<SnapshotLevel>>();
 
-            let bids = self.bids.iter().rev()
-            .map(|(x,y)|{ 
+            let mut bids = self.bids.iter().rev()
+            .map(|(_x,y)|{ 
                 let snapshot_level:SnapshotLevel = y.clone().into();
                 snapshot_level
             })
@@ -353,7 +367,22 @@ pub mod book {
             })
             .take(count as usize)
             .collect::<Vec<SnapshotLevel>>();
+
+            let mut max_value = asks.iter().chain(bids.iter()).map(|level| {
+                (level.total_value * 10000000.0) as u64
+            }).max().unwrap();
+
+            max_value = max_value / 10000000;
+
+            asks.iter_mut().for_each(|level| {
+                level.relative_size = (((38 / max_value) as f64) * level.total_value) as i64;
+            });
             
+            bids.iter_mut().for_each(|level| {
+                level.relative_size = (((38 / max_value) as f64) * level.total_value) as i64;
+            });
+
+            let spread = self.get_spread_percent();
 
             OrderBookSnapshot {
                 instrument: self.instrument.to_owned(),
@@ -365,7 +394,7 @@ pub mod book {
                     bids_value_total : self.bids_value_total.to_f64().unwrap_or(0.0),
                     asks_total : self.asks_total.to_f64().unwrap_or(0.0),
                     asks_value_total : self.asks_value_total.to_f64().unwrap_or(0.0),
-                    spread : "".to_owned(),
+                    spread : spread.to_string(),
                     sequence : self.sequence
                 }
             }
