@@ -369,17 +369,17 @@ pub mod book {
             .collect::<Vec<SnapshotLevel>>();
 
             let mut max_value = asks.iter().chain(bids.iter()).map(|level| {
-                (level.total_value * 10000000.0) as u64
+                (level.total_value * 1000000000000.0) as u64
             }).max().unwrap();
 
-            max_value = max_value / 10000000;
+            max_value = max_value / 1000000000000;
 
             asks.iter_mut().for_each(|level| {
-                level.relative_size = (((38 / max_value) as f64) * level.total_value) as i64;
+                level.relative_size = (((level.total_value / max_value as f64)) * 38.0) as i64;
             });
             
             bids.iter_mut().for_each(|level| {
-                level.relative_size = (((38 / max_value) as f64) * level.total_value) as i64;
+                level.relative_size = (((level.total_value / max_value as f64)) * 38.0) as i64;
             });
 
             let spread = self.get_spread_percent();
