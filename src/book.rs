@@ -12,12 +12,29 @@ pub mod book {
     use num_traits::cast::ToPrimitive;
     use crate::itertools::Itertools;
     use serde::{Serialize, Deserialize};
-
+    use std::ops::Bound::{ Included };
 
     
     // use bigdecimal::BigDecimal;
     // use bigdecimal::ToPrimitive;
     // use std::ops::{Mul, Add, Sub, Div};
+
+    pub fn get_cumulative_value(bookmap: &BTreeMap<bigdecimal::BigDecimal, Level>, start_value: f64, end_value: f64) -> Vec<SnapshotLevel>{
+        let mut bid_cum_size:BigDecimal = BigDecimal::default();
+        let mut bid_cum_value:BigDecimal = BigDecimal::default();
+        let mut cum_bid_values = Vec::new();
+        for(_, level) in bookmap.range((Included(BigDecimal::from(start_value)), Included(BigDecimal::from(end_value)))) {
+            bid_cum_size = bid_cum_size.add(level.size.clone());
+            bid_cum_value = bid_cum_value.add(level.value.clone());
+            cum_bid_values.push(SnapshotLevel {
+                price : level.price.to_f64().unwrap(),
+                total_size : bid_cum_size.to_f64().unwrap(),
+                total_value : bid_cum_value.to_f64().unwrap(),
+                relative_size : 0
+            });
+        }
+        return cum_bid_values;
+    }
 
     pub fn group_decimal(price:f64, group_size:f64, group_lower:bool) -> f64{
         let quotient = (price / group_size) as u64;
@@ -136,7 +153,9 @@ pub mod book {
         time :u64,  //"2017-10-14T20:08:50.920Z"
         info : OrderBookInfo,
         asks : Vec<SnapshotLevel>,
-        bids : Vec<SnapshotLevel>
+        bids : Vec<SnapshotLevel>,
+        pub cum_bid_values : Vec<SnapshotLevel>,
+        pub cum_ask_values : Vec<SnapshotLevel>
     }
 
 
@@ -312,18 +331,27 @@ pub mod book {
         }
 
         pub fn get_spread_percent(&self) -> f64 {
-            let bid:f64 = self.bids.keys().rev().take(1).map(|bigdec| bigdec.to_f64().unwrap()).sum();
-            let ask:f64 = self.asks.keys().take(1).map(|bigdec| bigdec.to_f64().unwrap()).sum();
+            let bid:f64 = self.get_best_bid();
+            let ask:f64 = self.get_best_ask();
             return ((ask - bid) / bid) * 100.0 ;
         }
 
         pub fn get_spread(&self) -> f64{
-            let bid:f64 = self.bids.keys().rev().take(1).map(|bigdec| bigdec.to_f64().unwrap()).sum();
-            let ask:f64 = self.asks.keys().take(1).map(|bigdec| bigdec.to_f64().unwrap()).sum();
+            let bid:f64 = self.get_best_bid();
+            let ask:f64 = self.get_best_ask();
             return ask - bid;
         }
 
-        pub fn get_grouped_snapshot(&self, group:f64, count: usize) -> OrderBookSnapshot {
+        pub fn get_best_bid(&self) -> f64 {
+            self.bids.keys().rev().take(1).map(|bigdec| bigdec.to_f64().unwrap()).sum()
+        }
+        
+        pub fn get_best_ask(&self) -> f64 {
+            self.asks.keys().take(1).map(|bigdec| bigdec.to_f64().unwrap()).sum()
+        }
+
+
+        pub fn get_grouped_snapshot(&self, group:f64, count: usize, depth_map_percent: usize) -> OrderBookSnapshot {
             let mut asks = self.asks.iter()
             .map(|(_x,y)|{ 
                 let snapshot_level:SnapshotLevel = y.clone().into();
@@ -382,6 +410,16 @@ pub mod book {
                 level.relative_size = (((level.total_value / max_value as f64)) * 38.0) as i64;
             });
 
+            let mid_value = (self.get_best_ask() + self.get_best_bid()) / 2.0;
+
+            let bid_bound = mid_value * ( 1.0 - (depth_map_percent as f64) / 100.0);
+            
+            let ask_bound = mid_value * ( 1.0 + (depth_map_percent as f64) / 100.0);
+
+            for(key, value) in self.asks.range((Included(BigDecimal::from(mid_value)), Included(BigDecimal::from(ask_bound)))) {
+                println!("&key, &value, {:?} {:?}", key.clone(), value.clone());
+            }
+
             let spread = self.get_spread_percent();
 
             OrderBookSnapshot {
@@ -396,7 +434,9 @@ pub mod book {
                     asks_value_total : self.asks_value_total.to_f64().unwrap_or(0.0),
                     spread : spread.to_string(),
                     sequence : self.sequence
-                }
+                },
+                cum_ask_values : get_cumulative_value(&self.asks, mid_value, ask_bound),
+                cum_bid_values : get_cumulative_value(&self.bids, bid_bound, mid_value)
             }
         }
     }
@@ -468,9 +508,6 @@ mod tests {
         let mut book = OrderBook::new("instrument", 100);
         create_asks(&mut book);
         create_bids(&mut book);
-
-        
-
     }
 
     #[test]
