@@ -19,23 +19,6 @@ pub mod book {
     // use bigdecimal::ToPrimitive;
     // use std::ops::{Mul, Add, Sub, Div};
 
-    pub fn get_cumulative_value(bookmap: &BTreeMap<bigdecimal::BigDecimal, Level>, start_value: f64, end_value: f64) -> Vec<SnapshotLevel>{
-        let mut bid_cum_size:BigDecimal = BigDecimal::default();
-        let mut bid_cum_value:BigDecimal = BigDecimal::default();
-        let mut cum_bid_values = Vec::new();
-        for(_, level) in bookmap.range((Included(BigDecimal::from(start_value)), Included(BigDecimal::from(end_value)))) {
-            bid_cum_size = bid_cum_size.add(level.size.clone());
-            bid_cum_value = bid_cum_value.add(level.value.clone());
-            cum_bid_values.push(SnapshotLevel {
-                price : level.price.to_f64().unwrap(),
-                total_size : bid_cum_size.to_f64().unwrap(),
-                total_value : bid_cum_value.to_f64().unwrap(),
-                relative_size : 0
-            });
-        }
-        return cum_bid_values;
-    }
-
     pub fn group_decimal(price:f64, group_size:f64, group_lower:bool) -> f64{
         let quotient = (price / group_size) as u64;
         let quotient_decimal = if group_lower { quotient } else { quotient + 1 };
@@ -350,6 +333,42 @@ pub mod book {
             self.asks.keys().take(1).map(|bigdec| bigdec.to_f64().unwrap()).sum()
         }
 
+        pub fn get_cumulative_value(&self, order_type: OrderType, start_value: f64, end_value: f64) -> Vec<SnapshotLevel>{
+
+            let mut bid_cum_size:BigDecimal = BigDecimal::default();
+            let mut bid_cum_value:BigDecimal = BigDecimal::default();
+            let mut cum_bid_values = Vec::new();
+
+            match order_type {
+                OrderType::Bid => {
+                    for(_, level) in self.bids.range((Included(BigDecimal::from(start_value)), Included(BigDecimal::from(end_value)))).rev() {
+                        bid_cum_size = bid_cum_size.add(level.size.clone());
+                        bid_cum_value = bid_cum_value.add(level.value.clone());
+                        cum_bid_values.push(SnapshotLevel {
+                            price : level.price.to_f64().unwrap(),
+                            total_size : bid_cum_size.to_f64().unwrap(),
+                            total_value : bid_cum_value.to_f64().unwrap(),
+                            relative_size : 0
+                        });
+                    }
+                },
+                OrderType::Ask => {
+                    for(_, level) in self.asks.range((Included(BigDecimal::from(start_value)), Included(BigDecimal::from(end_value)))) {
+                        bid_cum_size = bid_cum_size.add(level.size.clone());
+                        bid_cum_value = bid_cum_value.add(level.value.clone());
+                        cum_bid_values.push(SnapshotLevel {
+                            price : level.price.to_f64().unwrap(),
+                            total_size : bid_cum_size.to_f64().unwrap(),
+                            total_value : bid_cum_value.to_f64().unwrap(),
+                            relative_size : 0
+                        });
+                    }
+                }
+            }
+            return cum_bid_values;
+        }
+
+
 
         pub fn get_grouped_snapshot(&self, group:f64, count: usize, depth_map_percent: usize) -> OrderBookSnapshot {
             let mut asks = self.asks.iter()
@@ -435,8 +454,8 @@ pub mod book {
                     spread : spread.to_string(),
                     sequence : self.sequence
                 },
-                cum_ask_values : get_cumulative_value(&self.asks, mid_value, ask_bound),
-                cum_bid_values : get_cumulative_value(&self.bids, bid_bound, mid_value)
+                cum_ask_values : self.get_cumulative_value(OrderType::Ask, mid_value, ask_bound),
+                cum_bid_values : self.get_cumulative_value(OrderType::Bid, bid_bound, mid_value)
             }
         }
     }
