@@ -1,5 +1,6 @@
 extern crate stock_messages;
 extern crate serde;
+extern crate circular_queue;
 pub mod book {
     use stock_messages::stock_messages::{Side, SnapshotMessage, PriceLevel, BookInfo, Type, LevelUpdate};
     use std::collections::BTreeMap;
@@ -13,6 +14,7 @@ pub mod book {
     use crate::itertools::Itertools;
     use serde::{Serialize, Deserialize};
     use std::ops::Bound::{ Included };
+    use circular_queue::CircularQueue;
 
     
     // use bigdecimal::BigDecimal;
@@ -89,6 +91,9 @@ pub mod book {
 
     #[derive(Debug, Clone)]
     pub struct OrderBook {
+        snapshot_callback : fn(),
+        snapshot_received: bool,
+        pending_levels : Vec<LevelUpdate>,
         pub instrument : String,
         pub sequence: u64,
         pub bids : BTreeMap<Price, Level>,
@@ -96,7 +101,7 @@ pub mod book {
         pub bids_total: Size,
         pub bids_value_total: Value,
         pub asks_total: Size,
-        pub asks_value_total: Value,
+        pub asks_value_total: Value
         // orderPool: OrderPool = {};
     }
 
@@ -160,7 +165,7 @@ pub mod book {
     impl From<SnapshotMessage> for OrderBook {
         fn from(snapshot: SnapshotMessage) -> Self {
            let sequence:u64 = snapshot.source_sequence.try_into().unwrap_or(0u64);
-           let mut book = OrderBook::new(&snapshot.product_id, sequence);
+           let mut book = OrderBook::new(&snapshot.product_id, sequence, || {});
            book.bids_total = snapshot.bids.iter().fold(BigDecimal::zero(), |total, current| {
                total.add(BigDecimal::from(current.price))
            });
@@ -222,8 +227,9 @@ pub mod book {
     }
 
     impl OrderBook {
-        pub fn new(instrument : &str, sequence: u64) -> OrderBook {
+        pub fn new(instrument : &str, sequence: u64, callback: fn()) -> OrderBook {
             OrderBook {
+                snapshot_received : false,
                 sequence : sequence,
                 instrument : String::from(instrument),
                 bids : BTreeMap::new(),
@@ -231,12 +237,18 @@ pub mod book {
                 bids_total: BigDecimal::zero(),
                 bids_value_total: BigDecimal::zero(),
                 asks_total: BigDecimal::zero(),
+                snapshot_callback : callback,
                 asks_value_total: BigDecimal::zero(),
+                pending_levels : Vec::new()
             }
         }
 
-        pub fn update_level(&mut self, bytes: Vec<u8>) -> bool{
-            let level_message:LevelUpdate = LevelUpdate::decode(bytes).unwrap();
+        pub fn registerRequestSnapshot(&mut self, callback: fn()) -> bool {
+            self.snapshot_callback = callback;
+            return false;
+        }
+
+        pub fn apply_level(&mut self, level_message: LevelUpdate) -> bool {
             if level_message.size == 0.0 {
                 self.remove_level(OrderType::Bid, level_message.price, level_message.sequence as u64);
                 self.remove_level(OrderType::Ask, level_message.price, level_message.sequence as u64);
@@ -250,6 +262,25 @@ pub mod book {
                 Side::Sell => {
                     self.add_level(OrderType::Ask, level_message.price, level_message.size, level_message.sequence as u64);
                 }
+            }
+            true
+        }
+
+        fn save_level(&self, level_message:LevelUpdate) {
+
+        }
+
+        pub fn update_level(&mut self, bytes: Vec<u8>) -> bool{
+            let level_message:LevelUpdate = LevelUpdate::decode(bytes).unwrap();
+            let expected_sequence: u64  = level_message.sequence as u64 - 1;
+            if self.sequence == expected_sequence {
+                self.apply_level(level_message);
+            } else if self.sequence > expected_sequence {
+                // Ignore this sequence is already processed
+            } else {
+                //clear and request snapshot
+                self.save_level(level_message);
+                return false;
             }
             true
         }
@@ -504,7 +535,7 @@ mod tests {
 
     #[test]
     fn test_create_book() {
-        let mut book = OrderBook::new("instrument", 100);
+        let mut book = OrderBook::new("instrument", 100, || {});
         create_asks(&mut book);
         create_bids(&mut book);
         print_book(book, 50 as usize);
@@ -524,14 +555,14 @@ mod tests {
     #[test]
 
     fn test_grouped_snapshot() {
-        let mut book = OrderBook::new("instrument", 100);
+        let mut book = OrderBook::new("instrument", 100, || {});
         create_asks(&mut book);
         create_bids(&mut book);
     }
 
     #[test]
     fn test_update_level() {
-        let mut book = OrderBook::new("instrument", 100);
+        let mut book = OrderBook::new("instrument", 100, || { });
         create_asks(&mut book);
         create_bids(&mut book);
 
