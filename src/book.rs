@@ -20,9 +20,15 @@ pub mod book {
     // use std::ops::{Mul, Add, Sub, Div};
 
     pub fn group_decimal(price:f64, group_size:f64, group_lower:bool) -> f64{
-        let quotient = (price / group_size) as u64;
-        let quotient_decimal = if group_lower { quotient } else { quotient + 1 };
-        (quotient_decimal as f64) * group_size
+        let group = (price / group_size) as u64;
+        let mut current_price = (group as f64) * group_size;
+        if !group_lower { 
+            let group_result = price / group_size;
+            if group_result > (group as f64) { 
+                current_price = current_price + group_size 
+            } 
+        }
+        current_price
     }
 
     // pub fn group_bigdecimal(price_decimal:BigDecimal, group_decimal:BigDecimal, group_lower:bool) -> BigDecimal{
@@ -69,9 +75,9 @@ pub mod book {
     impl Into<PriceLevel> for Level {
         fn into(self) -> PriceLevel{
             PriceLevel {
-                price: self.price.clone().to_f64().unwrap_or(0f64),
-                total_size: self.size.clone().to_f64().unwrap_or(0f64),
-                total_value: BigDecimal::from(self.price).mul(BigDecimal::from(self.size)).clone().to_f64().unwrap_or(0f64),
+                price: self.price.clone().to_string().parse().unwrap_or(0f64),
+                total_size: self.size.clone().to_string().parse().unwrap_or(0f64),
+                total_value: BigDecimal::from(self.price).mul(BigDecimal::from(self.size)).clone().to_string().parse().unwrap_or(0f64),
             }
         }
     }
@@ -79,9 +85,9 @@ pub mod book {
     impl Into<SnapshotLevel> for Level {
         fn into(self) -> SnapshotLevel{
             SnapshotLevel {
-                price: self.price.clone().to_f64().unwrap_or(0f64),
-                total_size: self.size.clone().to_f64().unwrap_or(0f64),
-                total_value: BigDecimal::from(self.price).mul(BigDecimal::from(self.size)).clone().to_f64().unwrap_or(0f64),
+                price: self.price.clone().to_string().parse().unwrap_or(0f64),
+                total_size: self.size.clone().to_string().parse().unwrap_or(0f64),
+                total_value: BigDecimal::from(self.price).mul(BigDecimal::from(self.size)).clone().to_string().parse().unwrap_or(0f64),
                 relative_size : 0
             }
         }
@@ -196,10 +202,10 @@ pub mod book {
         fn into(self: OrderBook) -> SnapshotMessage {
             let info = BookInfo {
                 sequence : self.sequence as u32,
-                ask_total_size : self.asks_total.to_f64().unwrap_or(0.0f64),
-                ask_total_value : self.asks_value_total.to_f64().unwrap_or(0.0f64),
-                bid_total_size : self.bids_total.to_f64().unwrap_or(0.0f64),
-                bid_tota_value : self.bids_value_total.to_f64().unwrap_or(0.0f64),
+                ask_total_size : self.asks_total.to_string().parse().unwrap_or(0f64),
+                ask_total_value : self.asks_value_total.to_string().parse().unwrap_or(0f64),
+                bid_total_size : self.bids_total.to_string().parse().unwrap_or(0f64),
+                bid_tota_value : self.bids_value_total.to_string().parse().unwrap_or(0f64),
             };
             let message = SnapshotMessage {
                 trades : vec![],
@@ -237,6 +243,13 @@ pub mod book {
 
         pub fn update_level(&mut self, bytes: Vec<u8>) -> bool{
             let level_message:LevelUpdate = LevelUpdate::decode(bytes).unwrap();
+            let next_sequence = (self.sequence + 1) as i32;
+            let received_sequence = level_message.sequence;
+            if received_sequence < next_sequence {
+                println!("STALE SEQUENCE MISMATCH {} received {}, next {}", self.instrument, received_sequence, next_sequence)
+            } else if received_sequence > next_sequence {
+                println!("SEQUENCE MISMATCH {} received {}, next {}", self.instrument, received_sequence, next_sequence)
+            }
             if level_message.size == 0.0 {
                 self.remove_level(OrderType::Bid, level_message.price, level_message.sequence as u64);
                 self.remove_level(OrderType::Ask, level_message.price, level_message.sequence as u64);
@@ -345,7 +358,7 @@ pub mod book {
                         bid_cum_size = bid_cum_size.add(level.size.clone());
                         bid_cum_value = bid_cum_value.add(level.value.clone());
                         cum_bid_values.push(SnapshotLevel {
-                            price : level.price.to_f64().unwrap(),
+                            price : level.price.to_string().parse().unwrap_or(0f64),
                             total_size : bid_cum_size.to_f64().unwrap(),
                             total_value : bid_cum_value.to_f64().unwrap(),
                             relative_size : 0
@@ -357,7 +370,7 @@ pub mod book {
                         bid_cum_size = bid_cum_size.add(level.size.clone());
                         bid_cum_value = bid_cum_value.add(level.value.clone());
                         cum_bid_values.push(SnapshotLevel {
-                            price : level.price.to_f64().unwrap(),
+                            price : level.price.to_string().parse().unwrap_or(0f64),
                             total_size : bid_cum_size.to_f64().unwrap(),
                             total_value : bid_cum_value.to_f64().unwrap(),
                             relative_size : 0
@@ -464,7 +477,7 @@ pub mod book {
 #[cfg(test)]
 mod tests {
     // Note this useful idiom: importing names from outer (for mod tests) scope.
-    use super::book::{OrderBook, OrderType, Level};
+    use super::book::{OrderBook, OrderType, Level, group_decimal};
     use num_traits::cast::ToPrimitive;
     use std::convert::TryInto;
     use stock_messages::stock_messages::{ SnapshotMessage};
@@ -500,7 +513,42 @@ mod tests {
             }
             println!("{:?} {:?} {:?}", level.price.to_f64().unwrap(), level.size.to_f64().unwrap(), level.value.to_f64().unwrap());
         })
-    }   
+    }
+    
+    #[test]
+    fn test_group_decimal_1 () {
+        let result = group_decimal(6702.01, 1.0, false);
+        assert_eq!(result, 6703.00);
+        
+        let result = group_decimal(6702.01, 1.0, true);
+        assert_eq!(result, 6702.00);
+
+        let result = group_decimal(6702.01, 0.01, false);
+        assert_eq!(result, 6702.01);
+
+        let result = group_decimal(6702.01, 0.01, true);
+        assert_eq!(result, 6702.01);
+
+
+        let cases = vec![
+                //value, grouping, result, 
+                (4.324210 , 0.5, 4.00, true),
+                (4.324210 , 0.05, 4.3, true),
+                (4.324210 , 0.005, 4.32, true),
+                (4.624210 , 0.5, 4.5, true),
+                (4.624210 , 5.0, 0.0, true),
+                (4.324210 , 0.5, 4.50, false),
+                (4.324210 , 0.05, 4.35, false),
+                (4.324210 , 0.005, 4.325, false),
+                (4.624210 , 0.5, 5.0, false),
+                (4.624210 , 5.0, 5.0, false),
+            ];
+
+            for case in &cases {
+                let q = group_decimal(case.0, case.1, case.3);
+                assert_eq!(q, case.2);
+            }
+    }
 
     #[test]
     fn test_create_book() {
