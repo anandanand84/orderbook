@@ -15,10 +15,6 @@ pub mod book {
     use std::ops::Bound::{ Included };
 
     
-    // use bigdecimal::BigDecimal;
-    // use bigdecimal::ToPrimitive;
-    // use std::ops::{Mul, Add, Sub, Div};
-
     pub fn group_decimal(price:f64, group_size:f64, group_lower:bool) -> f64{
         let group = (price / group_size) as u64;
         let mut current_price = (group as f64) * group_size;
@@ -241,14 +237,24 @@ pub mod book {
             }
         }
 
+        pub fn verify_sequence(&self, sequence: i32) -> (bool, bool) {
+            let next_sequence = (self.sequence + 1) as i32;
+            let received_sequence = sequence;
+            if received_sequence < next_sequence {
+                println!("old sequenece for {} ignoring current received sequence: {} book sequence: {}", self.instrument, received_sequence, next_sequence);
+                return (true, true);
+            } else if received_sequence > next_sequence {
+                println!("SEQUENCE MISMATCH {} received {}, next {}", self.instrument, received_sequence, next_sequence);
+                return (true, false);
+            }
+            return (false, false);
+        }
+
         pub fn update_level(&mut self, bytes: Vec<u8>) -> bool{
             let level_message:LevelUpdate = LevelUpdate::decode(bytes).unwrap();
-            let next_sequence = (self.sequence + 1) as i32;
-            let received_sequence = level_message.sequence;
-            if received_sequence < next_sequence {
-                println!("STALE SEQUENCE MISMATCH {} received {}, next {}", self.instrument, received_sequence, next_sequence)
-            } else if received_sequence > next_sequence {
-                println!("SEQUENCE MISMATCH {} received {}, next {}", self.instrument, received_sequence, next_sequence)
+            let (stop, valid) = self.verify_sequence(level_message.sequence);
+            if stop {
+                return valid;
             }
             if level_message.size == 0.0 {
                 self.remove_level(OrderType::Bid, level_message.price, level_message.sequence as u64);
@@ -267,7 +273,11 @@ pub mod book {
             true
         }
         
-        pub fn add_level(&mut self, order_type: OrderType, price:f64, size:f64, sequence:u64) {
+        pub fn add_level(&mut self, order_type: OrderType, price:f64, size:f64, sequence:u64) -> bool {
+            let (stop, valid) = self.verify_sequence(sequence as i32);
+            if stop {
+                return valid;
+            }
             self.sequence = sequence;
             match order_type {
                 OrderType::Bid => {
@@ -285,9 +295,14 @@ pub mod book {
                         .insert(BigDecimal::from(price), Level::new(price, size));
                 }
             }
+            return true
         }
         
-        pub fn remove_level(&mut self, order_type: OrderType, price:f64, sequence:u64){
+        pub fn remove_level(&mut self, order_type: OrderType, price:f64, sequence:u64) -> bool{
+            let (stop, valid) = self.verify_sequence(sequence as i32);
+            if stop {
+                return valid;
+            }
             self.sequence = sequence;
             match order_type {
                 OrderType::Bid => {
@@ -308,6 +323,7 @@ pub mod book {
                     }
                 }
             }
+            return true;
         }
 
         pub fn get_levels(&self, count: i32) ->  (Vec<Level>,Vec<Level>) {
@@ -489,7 +505,8 @@ mod tests {
         (100..200).into_iter()
                 .zip((100..200).into_iter())
                 .for_each(|(price, size)| {
-                    book.add_level(OrderType::Ask, price as f64, size as f64, 11)
+                    let sequence = book.sequence + 1;
+                    book.add_level(OrderType::Ask, price as f64, size as f64, sequence);
                 })
     }
 
@@ -497,7 +514,8 @@ mod tests {
         (1..100).into_iter()
                 .zip((1..100).into_iter())
                 .for_each(|(price, size)| {
-                    book.add_level(OrderType::Bid, price as f64, size as f64, 11)
+                    let sequence = book.sequence + 1;
+                    book.add_level(OrderType::Bid, price as f64, size as f64, sequence);
                 })
     }
 
@@ -592,8 +610,10 @@ mod tests {
         assert_eq!(first_bid.1, 99.0);
 
         // ADD NEW LEVEL
-        book.add_level(OrderType::Bid, 99.1, 99.1, 2);
-        book.add_level(OrderType::Ask, 99.9, 99.9, 2);
+        let mut sequence = book.sequence + 1;
+        book.add_level(OrderType::Bid, 99.1, 99.1, sequence);
+        sequence = book.sequence + 1;
+        book.add_level(OrderType::Ask, 99.9, 99.9, sequence);
 
         let (first_ask, first_bid) = get_first_ask_and_bid(&book);
 
@@ -603,8 +623,10 @@ mod tests {
         assert_eq!(first_bid.1, 99.1);
         
         // Update BID LEVEL
-        book.add_level(OrderType::Bid, 99.1, 99.2, 2);
-        book.add_level(OrderType::Ask, 99.9, 99.8, 2);
+        sequence = book.sequence + 1;
+        book.add_level(OrderType::Bid, 99.1, 99.2, sequence);
+        sequence = book.sequence + 1;
+        book.add_level(OrderType::Ask, 99.9, 99.8, sequence);
 
         let (first_ask, first_bid) = get_first_ask_and_bid(&book);
 
@@ -614,8 +636,10 @@ mod tests {
         assert_eq!(first_bid.1, 99.2); //size
         
         // Remove LEVEL
-        book.remove_level(OrderType::Bid, 99.1, 2);
-        book.remove_level(OrderType::Ask, 99.9, 2);
+        sequence = book.sequence + 1;
+        book.remove_level(OrderType::Bid, 99.1, sequence);
+        sequence = book.sequence + 1;
+        book.remove_level(OrderType::Ask, 99.9, sequence);
 
         let (first_ask, first_bid) = get_first_ask_and_bid(&book);
 
@@ -628,14 +652,14 @@ mod tests {
     
     #[test]
     fn test_create_snapshot() {
-        let bytes = std::fs::read("/Users/AAravindan/dev/orderbook/snapshots/Binance:BTC_USDT").unwrap();
+        let bytes = std::fs::read("snapshots/Binance:BTC_USDT").unwrap();
         let book:OrderBook  = bytes.try_into().unwrap();
         assert_eq!(book.instrument, "Binance:BTC/USDT");
     }
     
     #[test]
     fn get_snapshot() {
-        let bytes = std::fs::read("/Users/AAravindan/dev/orderbook/snapshots/Binance:BTC_USDT").unwrap();
+        let bytes = std::fs::read("snapshots/Binance:BTC_USDT").unwrap();
         let mut book:OrderBook  = bytes.clone().try_into().unwrap();
         let snapshot:SnapshotMessage = book.clone().into();
 
