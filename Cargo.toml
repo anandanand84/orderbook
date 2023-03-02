@@ -4,6 +4,9 @@ version = "0.1.0"
 authors = ["Anand Aravindan <anand.anand84@gmail.com>"]
 edition = "2018"
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -16,3 +19,16 @@ stock_messages = { git = "https://github.com/anandanand84/stock_messages" }
 lazy_static = "1.4.0"
 serde = { version = "1.0.102", features = ["derive"] }
 itertools = "0.8.1"
+wasm-bindgen = "0.2.63"
+argminmax = "0.4"
+console_error_panic_hook = { version = "0.1.6", optional = true }
+
+[features]
+default = ["console_error_panic_hook"]
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3.13"
+
+[profile.release]
+# Tell `rustc` to optimize for small code size.
+opt-level = "s"

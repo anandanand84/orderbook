@@ -194,6 +194,37 @@ pub mod book {
         }
     }
 
+    impl Into<Vec<u8>> for OrderBook {
+        fn into(self: OrderBook) -> Vec<u8> {
+            let info = BookInfo {
+                sequence : self.sequence as u32,
+                ask_total_size : self.asks_total.to_string().parse().unwrap_or(0f64),
+                ask_total_value : self.asks_value_total.to_string().parse().unwrap_or(0f64),
+                bid_total_size : self.bids_total.to_string().parse().unwrap_or(0f64),
+                bid_tota_value : self.bids_value_total.to_string().parse().unwrap_or(0f64),
+            };
+            let message = SnapshotMessage {
+                trades : vec![],
+                r#type : Type::Snapshot.into(),
+                exchange : -1,
+                info: info,
+                product_id : String::from(&self.instrument),
+                bids : self.bids.iter()
+                        .map(|(_, level)| { level.clone() })
+                        .map(|y|  y.clone().into() ).collect(),
+                asks : self.asks.iter()
+                        .map(|(_, level)| { level.clone() })
+                        .map(|y|  y.clone().into() ).collect(),
+                source_sequence : self.sequence as i32,
+                takers : vec![],
+                time : 100u64
+            };
+            let mut buf:Vec<u8> = Vec::new();
+            message.encode(&mut buf).unwrap();
+            buf
+        }
+    }
+
     impl Into<SnapshotMessage> for OrderBook {
         fn into(self: OrderBook) -> SnapshotMessage {
             let info = BookInfo {
