@@ -27,17 +27,8 @@ pub mod book {
         current_price
     }
 
-    // pub fn group_bigdecimal(price_decimal:BigDecimal, group_decimal:BigDecimal, group_lower:bool) -> BigDecimal{
-    //     let quotient = price_decimal.div(group_decimal.clone()).to_i64().unwrap();
-    //     let quotient_decimal = if group_lower { quotient } else { quotient + 1 };
-    //     BigDecimal::from(quotient_decimal).mul(group_decimal)
-    // }
-
-
     pub type Price = BigDecimal;
-
     pub type Size = BigDecimal;
-
     pub type Value = BigDecimal;
     
     #[derive(Debug, Hash, Eq, PartialEq, Clone)]
@@ -142,22 +133,6 @@ pub mod book {
         pub cum_bid_values : Vec<SnapshotLevel>,
         pub cum_ask_values : Vec<SnapshotLevel>
     }
-
-
-    // impl From<OrderBook> for OrderBookSnapshot {
-    //     fn from(book:OrderBook) -> Self {
-    //         OrderBookSnapshot {
-    //             instrument: book.instrument.to_owned(),
-    //             sequence : book.sequence,
-    //             bids : book.bids.values().into_iter().cloned().collect::<Vec<_>>(),
-    //             asks : book.asks.values().into_iter().cloned().collect::<Vec<_>>(),
-    //             bids_total : book.bids_total,
-    //             bids_value_total : book.bids_value_total,
-    //             asks_total : book.asks_total,
-    //             asks_value_total : book.asks_value_total
-    //         }
-    //     }
-    // }
 
     impl From<SnapshotMessage> for OrderBook {
         fn from(snapshot: SnapshotMessage) -> Self {
@@ -281,8 +256,7 @@ pub mod book {
             return (false, false);
         }
 
-        pub fn update_level(&mut self, bytes: Vec<u8>) -> bool{
-            let level_message:LevelUpdate = LevelUpdate::decode(bytes).unwrap();
+        pub fn update_level_message(&mut self, level_message: LevelUpdate) -> bool {
             let (stop, valid) = self.verify_sequence(level_message.sequence);
             if stop {
                 return valid;
@@ -304,11 +278,12 @@ pub mod book {
             true
         }
         
+        pub fn update_level(&mut self, bytes: Vec<u8>) -> bool{
+            let level_message:LevelUpdate = LevelUpdate::decode(bytes).unwrap();
+            return self.update_level_message(level_message);
+        }
+        
         pub fn add_level(&mut self, order_type: OrderType, price:f64, size:f64, sequence:u64) -> bool {
-            let (stop, valid) = self.verify_sequence(sequence as i32);
-            if stop {
-                return valid;
-            }
             self.sequence = sequence;
             match order_type {
                 OrderType::Bid => {
@@ -330,10 +305,6 @@ pub mod book {
         }
         
         pub fn remove_level(&mut self, order_type: OrderType, price:f64, sequence:u64) -> bool{
-            let (stop, valid) = self.verify_sequence(sequence as i32);
-            if stop {
-                return valid;
-            }
             self.sequence = sequence;
             match order_type {
                 OrderType::Bid => {
@@ -356,7 +327,6 @@ pub mod book {
             }
             return true;
         }
-
         pub fn get_levels(&self, count: i32) ->  (Vec<Level>,Vec<Level>) {
             let asks = self.asks.iter().take(count as usize)
             .map(|(x,y)|{ (x.clone(), y.clone())})
@@ -428,8 +398,6 @@ pub mod book {
             return cum_bid_values;
         }
 
-
-
         pub fn get_grouped_snapshot(&self, group:f64, count: usize, depth_map_percent: usize) -> OrderBookSnapshot {
             let mut asks = self.asks.iter()
             .map(|(_x,y)|{ 
@@ -495,9 +463,9 @@ pub mod book {
             
             let ask_bound = mid_value * ( 1.0 + (depth_map_percent as f64) / 100.0);
 
-            for(key, value) in self.asks.range((Included(BigDecimal::from(mid_value)), Included(BigDecimal::from(ask_bound)))) {
-                println!("&key, &value, {:?} {:?}", key.clone(), value.clone());
-            }
+            // for(key, value) in self.asks.range((Included(BigDecimal::from(mid_value)), Included(BigDecimal::from(ask_bound)))) {
+            //     println!("&key, &value, {:?} {:?}", key.clone(), value.clone());
+            // }
 
             let spread = self.get_spread_percent();
 
