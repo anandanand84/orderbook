@@ -14,20 +14,28 @@ pub mod book {
     use crate::itertools::Itertools;
     use serde::{Serialize, Deserialize};
     use std::ops::Bound::{ Included };
-
+    use cached::proc_macro::cached;
+    use cached::SizedCache;
     
-    pub fn group_decimal(price:f64, group_size:f64, group_lower:bool) -> f64{
+    #[cached(
+        type = "SizedCache<String, f64>",
+        create = "{ SizedCache::with_size(100000) }",
+        convert = r#"{ format!("{}{}{}", price, group_size, group_lower) }"#)]
+    pub fn group_decimal(price: f64, group_size: f64, group_lower: bool) -> f64 {
         let group = (price / group_size) as u64;
         let mut current_price = (group as f64) * group_size;
-        if !group_lower { 
-            let group_result = price / group_size;
-            if group_result > (group as f64) { 
-                current_price = current_price + group_size 
-            } 
+        if !group_lower && (price > current_price) { 
+            current_price += group_size;
         }
-        current_price
+        let decimal_places = count_decimal_places(group_size);
+        BigDecimal::from(current_price).with_scale(decimal_places as i64).to_string().parse().unwrap_or(0f64) 
     }
 
+    fn count_decimal_places(num: f64) -> usize {
+        let decimal_str = format!("{:.20}", num - num.floor());
+        decimal_str.trim_end_matches('0').len() - 2
+    }
+    
     pub type Price = BigDecimal;
     pub type Size = BigDecimal;
     pub type Value = BigDecimal;
@@ -92,12 +100,7 @@ pub mod book {
         pub bids_value_total: Value,
         pub asks_total: Size,
         pub asks_value_total: Value,
-        
-        price_precision: u8,
-        size_precision: u8,
-        bids_grouped: BTreeMap<Price, Level>,
-        asks_grouped: BTreeMap<Price, Level>,
-        group: Option<f64>,
+    
         // orderPool: OrderPool = {};
     }
 
@@ -248,8 +251,6 @@ pub mod book {
                 bids_value_total: BigDecimal::zero(),
                 asks_total: BigDecimal::zero(),
                 asks_value_total: BigDecimal::zero(),
-                price_precision: 8,
-                size_precision: 8
             }
         }
 
