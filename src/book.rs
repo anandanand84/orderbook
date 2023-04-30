@@ -3,6 +3,7 @@ extern crate serde;
 pub mod book {
     use stock_messages::stock_messages::{Side, SnapshotMessage, PriceLevel, BookInfo, Type, LevelUpdate};
     use std::collections::BTreeMap;
+    use std::time::SystemTime;
     use prost::Message;
     use num_traits::identities::Zero;
     use std::ops::{Mul, Add, Sub};
@@ -86,20 +87,27 @@ pub mod book {
         pub sequence: u64,
         pub bids : BTreeMap<Price, Level>,
         pub asks : BTreeMap<Price, Level>,
+        
         pub bids_total: Size,
         pub bids_value_total: Value,
         pub asks_total: Size,
         pub asks_value_total: Value,
+        
+        price_precision: u8,
+        size_precision: u8,
+        bids_grouped: BTreeMap<Price, Level>,
+        asks_grouped: BTreeMap<Price, Level>,
+        group: Option<f64>,
         // orderPool: OrderPool = {};
     }
 
 
-    #[derive(Debug, Serialize, Deserialize)]
+    #[derive(Debug, Serialize, Deserialize, Clone)]
     pub struct SnapshotLevel {
-        relative_size : i64,
-        price : f64,
-        total_size : f64,
-        total_value : f64
+        pub relative_size : i64,
+        pub price : f64,
+        pub total_size : f64,
+        pub total_value : f64
     }
 
     impl SnapshotLevel {
@@ -113,23 +121,23 @@ pub mod book {
         }
     }
 
-    #[derive(Debug, Serialize, Deserialize)]
+    #[derive(Debug, Serialize, Deserialize, Clone)]
     pub struct OrderBookInfo {
-        asks_total : f64,
-        asks_value_total : f64,
-        bids_value_total : f64,
-        bids_total : f64,
-        spread : String,
-        sequence: u64
+        pub asks_total : f64,
+        pub asks_value_total : f64,
+        pub bids_value_total : f64,
+        pub bids_total : f64,
+        pub spread : String,
+        pub sequence: u64
     }
 
-    #[derive(Debug, Serialize, Deserialize)]
+    #[derive(Debug, Serialize, Deserialize, Clone)]
     pub struct OrderBookSnapshot {
-        instrument : String, //"Bittrex:ETH/USDT"
-        time :u64,  //"2017-10-14T20:08:50.920Z"
-        info : OrderBookInfo,
-        asks : Vec<SnapshotLevel>,
-        bids : Vec<SnapshotLevel>,
+        pub instrument : String, //"Bittrex:ETH/USDT"
+        pub time :u64,  //"2017-10-14T20:08:50.920Z"
+        pub info : OrderBookInfo,
+        pub asks : Vec<SnapshotLevel>,
+        pub bids : Vec<SnapshotLevel>,
         pub cum_bid_values : Vec<SnapshotLevel>,
         pub cum_ask_values : Vec<SnapshotLevel>
     }
@@ -169,8 +177,8 @@ pub mod book {
         }
     }
 
-    impl Into<Vec<u8>> for OrderBook {
-        fn into(self: OrderBook) -> Vec<u8> {
+    impl Into<Vec<u8>> for &OrderBook {
+        fn into(self) -> Vec<u8> {
             let info = BookInfo {
                 sequence : self.sequence as u32,
                 ask_total_size : self.asks_total.to_string().parse().unwrap_or(0f64),
@@ -192,7 +200,7 @@ pub mod book {
                         .map(|y|  y.clone().into() ).collect(),
                 source_sequence : self.sequence as i32,
                 takers : vec![],
-                time : 100u64
+                time : SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64
             };
             let mut buf:Vec<u8> = Vec::new();
             message.encode(&mut buf).unwrap();
@@ -240,6 +248,8 @@ pub mod book {
                 bids_value_total: BigDecimal::zero(),
                 asks_total: BigDecimal::zero(),
                 asks_value_total: BigDecimal::zero(),
+                price_precision: 8,
+                size_precision: 8
             }
         }
 
@@ -445,7 +455,7 @@ pub mod book {
 
             let mut max_value = asks.iter().chain(bids.iter()).map(|level| {
                 (level.total_value * 1000000000000.0) as u64
-            }).max().unwrap();
+            }).max().unwrap_or(u64::MAX);
 
             max_value = max_value / 1000000000000;
 
@@ -482,8 +492,8 @@ pub mod book {
                     spread : spread.to_string(),
                     sequence : self.sequence
                 },
-                cum_ask_values : self.get_cumulative_value(OrderType::Ask, mid_value, ask_bound),
-                cum_bid_values : self.get_cumulative_value(OrderType::Bid, bid_bound, mid_value)
+                cum_ask_values : if depth_map_percent==0 { Vec::new() } else { self.get_cumulative_value(OrderType::Ask, mid_value, ask_bound) },
+                cum_bid_values : if depth_map_percent==0 { Vec::new() } else { self.get_cumulative_value(OrderType::Bid, bid_bound, mid_value) }
             }
         }
     }
