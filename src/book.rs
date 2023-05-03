@@ -28,7 +28,21 @@ pub mod book {
             current_price += group_size;
         }
         let decimal_places = count_decimal_places(group_size);
-        BigDecimal::from(current_price).with_scale(decimal_places as i64).to_string().parse().unwrap_or(0f64) 
+        BigDecimal::from(current_price).with_scale(decimal_places as i64).to_f64().unwrap_or(0f64)
+    }
+
+    #[cached(
+        type = "SizedCache<String, BigDecimal>",
+        create = "{ SizedCache::with_size(100000) }",
+        convert = r#"{ format!("{}{}{}", price, group_size, group_lower) }"#)]
+    pub fn group_decimal_bigdecimal(price: f64, group_size: f64, group_lower: bool) -> BigDecimal {
+        let group = (price / group_size) as u64;
+        let mut current_price = (group as f64) * group_size;
+        if !group_lower && (price > current_price) { 
+            current_price += group_size;
+        }
+        let decimal_places = count_decimal_places(group_size);
+        BigDecimal::from(current_price).with_scale(decimal_places as i64) 
     }
 
     fn count_decimal_places(num: f64) -> usize {
@@ -100,6 +114,10 @@ pub mod book {
         pub bids_value_total: Value,
         pub asks_total: Size,
         pub asks_value_total: Value,
+
+        pub grouped_bids: BTreeMap<Price, Size>,
+        pub grouped_asks: BTreeMap<Price, Size>,
+        group_size: f64
     
         // orderPool: OrderPool = {};
     }
@@ -147,23 +165,24 @@ pub mod book {
 
     impl From<SnapshotMessage> for OrderBook {
         fn from(snapshot: SnapshotMessage) -> Self {
-           let sequence:u64 = snapshot.source_sequence.try_into().unwrap_or(0u64);
-           let mut book = OrderBook::new(&snapshot.product_id, sequence);
-           book.bids_total = snapshot.bids.iter().fold(BigDecimal::zero(), |total, current| {
-               total.add(BigDecimal::from(current.price))
-           });
-           book.asks_total = snapshot.asks.iter().fold(BigDecimal::zero(), |total, current| {
-               total.add(BigDecimal::from(current.price))
-           });
-           book.bids_value_total = snapshot.bids.iter().fold(BigDecimal::zero(), |total, current| {
-               total.add(BigDecimal::from(current.price).mul(BigDecimal::from(current.total_size)))
-           });
-           book.asks_value_total = snapshot.asks.iter().fold(BigDecimal::zero(), |total, current| {
-               total.add(BigDecimal::from(current.price).mul(BigDecimal::from(current.total_size)))
-           });
-           book.asks = snapshot.asks.into_iter().map(|pricelevel| (BigDecimal::from(pricelevel.price), Level::from(pricelevel))).collect();
-           book.bids = snapshot.bids.into_iter().map(|pricelevel| (BigDecimal::from(pricelevel.price), Level::from(pricelevel))).collect();
-           book
+            let sequence:u64 = snapshot.source_sequence.try_into().unwrap_or(0u64);
+            let mut book = OrderBook::new(&snapshot.product_id, sequence);
+            book.bids_total = snapshot.bids.iter().fold(BigDecimal::zero(), |total, current| {
+                total.add(BigDecimal::from(current.price))
+            });
+            book.asks_total = snapshot.asks.iter().fold(BigDecimal::zero(), |total, current| {
+                total.add(BigDecimal::from(current.price))
+            });
+            book.bids_value_total = snapshot.bids.iter().fold(BigDecimal::zero(), |total, current| {
+                total.add(BigDecimal::from(current.price).mul(BigDecimal::from(current.total_size)))
+            });
+            book.asks_value_total = snapshot.asks.iter().fold(BigDecimal::zero(), |total, current| {
+                total.add(BigDecimal::from(current.price).mul(BigDecimal::from(current.total_size)))
+            });
+            book.asks = snapshot.asks.into_iter().map(|pricelevel| (BigDecimal::from(pricelevel.price), Level::from(pricelevel))).collect();
+            book.bids = snapshot.bids.into_iter().map(|pricelevel| (BigDecimal::from(pricelevel.price), Level::from(pricelevel))).collect();
+            book.refresh_groupings();
+            book
         }
     }
     
@@ -251,17 +270,57 @@ pub mod book {
                 bids_value_total: BigDecimal::zero(),
                 asks_total: BigDecimal::zero(),
                 asks_value_total: BigDecimal::zero(),
+                grouped_bids: BTreeMap::new(),
+                grouped_asks: BTreeMap::new(),
+                group_size: 1.0
             }
+        }
+
+        pub fn set_group_size(&mut self, group_size: f64) {
+            self.group_size = group_size;
+            self.refresh_groupings();
+        }
+
+        pub fn refresh_groupings(&mut self) {
+            let group_size = self.group_size;
+            let mut grouped_bids = BTreeMap::new();
+            let mut grouped_asks = BTreeMap::new();
+    
+            for (_, pricelevel) in &self.asks {
+                let price = pricelevel.price.clone();
+                let size = pricelevel.size.clone();
+                let group_price = group_decimal_bigdecimal(price.to_f64().unwrap(), group_size, false);
+                let existing_size = grouped_asks.entry(group_price).or_insert(BigDecimal::zero());
+                *existing_size += size;
+            }
+    
+            for (_, pricelevel) in &self.bids {
+                let price = pricelevel.price.clone();
+                let size = pricelevel.size.clone();
+                let group_price = group_decimal_bigdecimal(price.to_f64().unwrap(), group_size, true);
+                let existing_size = grouped_bids.entry(group_price).or_insert( BigDecimal::zero());
+                *existing_size += size;
+            }
+    
+            self.grouped_bids = grouped_bids;
+            self.grouped_asks = grouped_asks;
+
         }
 
         pub fn verify_sequence(&self, sequence: i32) -> (bool, bool) {
             let next_sequence = (self.sequence + 1) as i32;
             let received_sequence = sequence;
             if received_sequence < next_sequence {
-                println!("old sequenece for {} ignoring current received sequence: {} book sequence: {}", self.instrument, received_sequence, next_sequence);
+                let result = format!("old sequenece for {} ignoring current received sequence: {} book sequence: {}", self.instrument, received_sequence, next_sequence);
+                #[cfg(feature = "console_error_panic_hook")]
+                web_sys::console::error_1(&result.clone().into());
+                println!("{}", result);
                 return (true, true);
             } else if received_sequence > next_sequence {
-                println!("SEQUENCE MISMATCH {} received {}, next {}", self.instrument, received_sequence, next_sequence);
+                let result = format!("SEQUENCE MISMATCH {} received {}, next {}", self.instrument, received_sequence, next_sequence);
+                #[cfg(feature = "console_error_panic_hook")]
+                web_sys::console::error_1(&result.clone().into());
+                println!("{}", result);
                 return (true, false);
             }
             return (false, false);
@@ -272,21 +331,16 @@ pub mod book {
             if stop {
                 return valid;
             }
+            let side = Side::from_i32(level_message.side).unwrap();
+            let order_type = if side == Side::Buy { OrderType::Bid } else { OrderType::Ask };
             if level_message.size == 0.0 {
                 self.remove_level(OrderType::Bid, level_message.price, level_message.sequence as u64);
                 self.remove_level(OrderType::Ask, level_message.price, level_message.sequence as u64);
-                return true
+                // self.refresh_groupings();
+                return true;
+            } else {
+                return self.add_level(order_type, level_message.price, level_message.size, level_message.sequence as u64);
             }
-            let side = Side::from_i32(level_message.side).unwrap();
-            match  side {
-                Side::Buy => {
-                    self.add_level(OrderType::Bid, level_message.price, level_message.size, level_message.sequence as u64);
-                },
-                Side::Sell => {
-                    self.add_level(OrderType::Ask, level_message.price, level_message.size, level_message.sequence as u64);
-                }
-            }
-            true
         }
         
         pub fn update_level(&mut self, bytes: Vec<u8>) -> bool{
@@ -296,43 +350,85 @@ pub mod book {
         
         pub fn add_level(&mut self, order_type: OrderType, price:f64, size:f64, sequence:u64) -> bool {
             self.sequence = sequence;
+            let group_size = self.group_size; // change this to your desired group size
             match order_type {
                 OrderType::Bid => {
                     self.bids_total = self.bids_total.clone().add(BigDecimal::from(size));
                     self.bids_value_total = self.bids_value_total.clone()
-                                        .add(BigDecimal::from(size).mul(BigDecimal::from(price)));
+                        .add(BigDecimal::from(size).mul(BigDecimal::from(price)));
+                    let current_size_at_level = self.bids.get(&BigDecimal::from(price)).map(|x| x.size.clone()).unwrap_or(BigDecimal::zero());
                     self.bids
                         .insert(BigDecimal::from(price), Level::new(price, size));
+                    let group_price = group_decimal_bigdecimal(price, group_size, true);
+                    let bids_group = self.grouped_bids.entry(group_price).or_insert(BigDecimal::zero());
+                    *bids_group -= current_size_at_level;
+                    *bids_group += BigDecimal::from(size);
                 },
                 OrderType::Ask => {
                     self.asks_total = self.asks_total.clone().add(BigDecimal::from(size));
                     self.asks_value_total = self.asks_value_total.clone()
-                                        .add(BigDecimal::from(size).mul(BigDecimal::from(price)));
+                        .add(BigDecimal::from(size).mul(BigDecimal::from(price)));
+                    let current_size_at_level = self.asks.get(&BigDecimal::from(price)).map(|x| x.size.clone()).unwrap_or(BigDecimal::zero());
                     self.asks
                         .insert(BigDecimal::from(price), Level::new(price, size));
+                    let group_price = group_decimal_bigdecimal(price, group_size, false);
+                    let asks_group = self.grouped_asks.entry(group_price).or_insert(BigDecimal::zero());
+                    *asks_group -= current_size_at_level;
+                    *asks_group += BigDecimal::from(size);
                 }
             }
-            return true
+            true
         }
+        
         
         pub fn remove_level(&mut self, order_type: OrderType, price:f64, sequence:u64) -> bool{
             self.sequence = sequence;
+            let price_decimal = BigDecimal::from(price);
             match order_type {
                 OrderType::Bid => {
-                    let removed_level = self.bids.remove(&BigDecimal::from(price));
+                    let removed_level = self.bids.remove(&price_decimal);
                     if let Some(level) = removed_level {
-                        self.bids_total = self.bids_total.clone().sub(level.size);
-                        self.bids_value_total = self.bids_value_total
-                                                    .clone()
-                                                    .sub(level.value);
+                        self.bids_total = self.bids_total.clone().sub(level.size.clone());
+                        self.bids_value_total = self.bids_value_total.clone().sub(level.value);
+        
+                        let group_size = self.group_size; // replace with your desired group size
+                        let grouped_price = group_decimal_bigdecimal(price, group_size, true);
+                        let removed_size = level.size;
+                        let grouped_level = self.grouped_bids.entry(grouped_price);
+                        match grouped_level {
+                            std::collections::btree_map::Entry::Vacant(_) => {},
+                            std::collections::btree_map::Entry::Occupied(level) => {
+                                let existing_size = level.get();
+                                if existing_size == &removed_size {
+                                    level.remove_entry();
+                                } else {
+                                    *level.into_mut() -= removed_size;
+                                }
+                            },
+                        }
                     }
                 },
                 OrderType::Ask => {
-                    let removed_level = self.asks.remove(&BigDecimal::from(price));
+                    let removed_level = self.asks.remove(&price_decimal);
                     if let Some(level) = removed_level {
-                        self.asks_total = self.asks_total.clone().sub(level.size);
-                        self.asks_value_total = self.asks_value_total.clone()
-                                        .sub(level.value);
+                        self.asks_total = self.asks_total.clone().sub(level.size.clone());
+                        self.asks_value_total = self.asks_value_total.clone().sub(level.value);
+        
+                        let group_size = self.group_size; // replace with your desired group size
+                        let grouped_price = group_decimal_bigdecimal(price, group_size, false);
+                        let removed_size = level.size;
+                        let grouped_level = self.grouped_asks.entry(grouped_price);
+                        match grouped_level {
+                            std::collections::btree_map::Entry::Vacant(_) => {},
+                            std::collections::btree_map::Entry::Occupied(level) => {
+                                let existing_size = level.get();
+                                if existing_size == &removed_size {
+                                    level.remove_entry();
+                                } else {
+                                    *level.into_mut() -= removed_size;
+                                }
+                            },
+                        }
                     }
                 }
             }
@@ -349,6 +445,22 @@ pub mod book {
             let bids = self.bids.iter()
             .rev().take(count as usize)
             .map(|(_, level)| { level.clone() })
+            .collect::<Vec<Level>>();
+
+            (bids, asks)
+        }
+
+        pub fn get_grouped_levels(&self, count: i32) ->  (Vec<Level>,Vec<Level>) {
+            let asks = self.grouped_asks.iter().take(count as usize)
+            .map(|(x,y)|{ (x.clone(), y.clone())})
+            .collect::<BTreeMap<Price, Size>>()
+            .iter().rev()
+            .map(|(price, size)| { Level { price: price.clone(), size: size.clone(), value: price * size} })
+            .collect::<Vec<Level>>();
+
+            let bids = self.grouped_bids.iter()
+            .rev().take(count as usize)
+            .map(|(price, size)| { Level { price: price.clone(), size: size.clone(), value: price * size} })
             .collect::<Vec<Level>>();
 
             (bids, asks)
@@ -409,7 +521,46 @@ pub mod book {
             return cum_bid_values;
         }
 
-        pub fn get_grouped_snapshot(&self, group:f64, count: usize, depth_map_percent: usize) -> OrderBookSnapshot {
+        pub fn get_grouped_snapshot_new(&self, count:usize) -> OrderBookSnapshot {
+            let bids = self.grouped_bids.iter().rev().map(|(price,size)|{ SnapshotLevel {
+                price : price.to_string().parse().unwrap_or(0f64),
+                total_size : size.to_f64().unwrap_or(0f64),
+                total_value : 0f64,
+                relative_size : 0
+            }})
+            .take(count)
+            .collect::<Vec<SnapshotLevel>>();
+
+            let asks = self.grouped_asks.iter().map(|(price,size)|{ SnapshotLevel {
+                price : price.to_string().parse().unwrap_or(0f64),
+                total_size : size.to_f64().unwrap_or(0f64),
+                total_value : 0f64,
+                relative_size : 0
+            }})
+            .take(count)
+            .collect::<Vec<SnapshotLevel>>();
+            
+            OrderBookSnapshot {
+                instrument: self.instrument.to_owned(),
+                bids : bids,
+                time : 0u64,
+                asks : asks,
+                info : OrderBookInfo {
+                    bids_total : self.bids_total.to_f64().unwrap_or(0.0),
+                    bids_value_total : self.bids_value_total.to_f64().unwrap_or(0.0),
+                    asks_total : self.asks_total.to_f64().unwrap_or(0.0),
+                    asks_value_total : self.asks_value_total.to_f64().unwrap_or(0.0),
+                    spread : self.get_spread().to_string(),
+                    sequence : self.sequence
+                },
+                cum_ask_values : Vec::new(),
+                cum_bid_values : Vec::new()
+            }
+        }
+
+        pub fn get_grouped_snapshot(&self, count: usize) -> OrderBookSnapshot {
+            let group:f64 = self.group_size;
+            let depth_map_percent = 0.0;
             let mut asks = self.asks.iter()
             .map(|(_x,y)|{ 
                 let snapshot_level:SnapshotLevel = y.clone().into();
@@ -493,8 +644,8 @@ pub mod book {
                     spread : spread.to_string(),
                     sequence : self.sequence
                 },
-                cum_ask_values : if depth_map_percent==0 { Vec::new() } else { self.get_cumulative_value(OrderType::Ask, mid_value, ask_bound) },
-                cum_bid_values : if depth_map_percent==0 { Vec::new() } else { self.get_cumulative_value(OrderType::Bid, bid_bound, mid_value) }
+                cum_ask_values : if depth_map_percent== 0.0 { Vec::new() } else { self.get_cumulative_value(OrderType::Ask, mid_value, ask_bound) },
+                cum_bid_values : if depth_map_percent== 0.0 { Vec::new() } else { self.get_cumulative_value(OrderType::Bid, bid_bound, mid_value) }
             }
         }
     }
@@ -533,6 +684,19 @@ mod tests {
     fn print_book(book: OrderBook, count: usize) {
         book.get_levels(count as i32).1.iter()
         .chain(book.get_levels(count as i32).0.iter())
+        // .map(|level|{level.clone()})
+        .enumerate()
+        .for_each(|(index, level)| {
+            if index == count {
+                println!("==============================================");
+            }
+            println!("{:?} {:?} {:?}", level.price.to_f64().unwrap(), level.size.to_f64().unwrap(), level.value.to_f64().unwrap());
+        })
+    }
+
+    fn print_grouped_book(book: OrderBook, count: usize) {
+        book.get_grouped_levels(count as i32).1.iter()
+        .chain(book.get_grouped_levels(count as i32).0.iter())
         // .map(|level|{level.clone()})
         .enumerate()
         .for_each(|(index, level)| {
