@@ -20,7 +20,6 @@ lazy_static = "1.4.0"
 serde = { version = "1.0.102", features = ["derive"] }
 itertools = "0.8.1"
 wasm-bindgen = "0.2.63"
-argminmax = "0.4"
 console_error_panic_hook = { version = "0.1.6", optional = true }
 cached= "0.43.0"
 web-sys = { version = "0.3.4", features=["console", "Document", "Element", "Event", "HtmlElement", "Node", "Window"]}
