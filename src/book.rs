@@ -330,6 +330,21 @@ pub mod book {
             }
         }
 
+        pub fn print_grouped_debug(&self) {
+            use colored::*;
+            use termion::clear::All;
+
+            println!("{}", termion::clear::All);
+            println!("Group Size: {}", self.group_size);
+            for (price, size) in self.grouped_asks.iter().take(100).rev() {
+                println!("{} {}", price.to_string().red(), size.to_string().red());
+            }
+            println!("---------------------");
+            for (price, size) in self.grouped_bids.iter().rev().take(100) {
+                println!("{} {}", price.to_string().green(), size.to_string().green());
+            }
+        }
+
         pub fn new(instrument: &str, sequence: u64) -> OrderBook {
             OrderBook {
                 sequence: sequence,
@@ -342,7 +357,7 @@ pub mod book {
                 asks_value_total: BigDecimal::zero(),
                 grouped_bids: BTreeMap::new(),
                 grouped_asks: BTreeMap::new(),
-                group_size: 1.0,
+                group_size: 100000.0,
             }
         }
 
@@ -867,46 +882,6 @@ mod tests {
             .for_each(|(price, size)| {
                 let sequence = book.sequence + 1;
                 book.add_level(OrderType::Bid, price as f64, size as f64, sequence);
-            })
-    }
-
-    fn print_book(book: OrderBook, count: usize) {
-        book.get_levels(count as i32)
-            .1
-            .iter()
-            .chain(book.get_levels(count as i32).0.iter())
-            // .map(|level|{level.clone()})
-            .enumerate()
-            .for_each(|(index, level)| {
-                if index == count {
-                    println!("==============================================");
-                }
-                println!(
-                    "{:?} {:?} {:?}",
-                    level.price.to_f64().unwrap(),
-                    level.size.to_f64().unwrap(),
-                    level.value.to_f64().unwrap()
-                );
-            })
-    }
-
-    fn print_grouped_book(book: OrderBook, count: usize) {
-        book.get_grouped_levels(count as i32)
-            .1
-            .iter()
-            .chain(book.get_grouped_levels(count as i32).0.iter())
-            // .map(|level|{level.clone()})
-            .enumerate()
-            .for_each(|(index, level)| {
-                if index == count {
-                    println!("==============================================");
-                }
-                println!(
-                    "{:?} {:?} {:?}",
-                    level.price.to_f64().unwrap(),
-                    level.size.to_f64().unwrap(),
-                    level.value.to_f64().unwrap()
-                );
             })
     }
 
