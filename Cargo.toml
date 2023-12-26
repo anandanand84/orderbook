@@ -19,16 +19,15 @@ stock_messages = { git = "https://github.com/anandanand84/stock_messages" }
 lazy_static = "1.4.0"
 serde = { version = "1.0.102", features = ["derive"] }
 itertools = "0.8.1"
-wasm-bindgen = "0.2.63"
 console_error_panic_hook = { version = "0.1.6", optional = true }
 cached= "0.43.0"
-web-sys = { version = "0.3.4", features=["console", "Document", "Element", "Event", "HtmlElement", "Node", "Window"]}
-colored = "2" 
-termion = "2"
-
+wasm-bindgen = { version = "0.2.63" }
+web-sys = { version = "0.3.4" , features=["console", "Document", "Element", "Event", "HtmlElement", "Node", "Window"]}
+colored = { version = "2" }
 
 [features]
 default = ["console_error_panic_hook"]
+
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.13"

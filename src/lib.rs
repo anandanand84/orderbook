@@ -7,6 +7,8 @@ mod book;
 
 use std::{collections::{HashMap}, convert::TryFrom, cell::RefCell};
 use stock_messages::stock_messages::SnapshotMessage;
+extern crate wasm_bindgen;
+
 use wasm_bindgen::prelude::*;
 
 pub use book::book::{OrderBook, OrderType, Level, OrderBookSnapshot};

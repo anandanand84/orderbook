@@ -1,5 +1,11 @@
 extern crate serde;
 extern crate stock_messages;
+
+#[cfg(not(target_arch = "wasm32"))]
+extern crate colored;
+#[cfg(not(target_arch = "wasm32"))]
+extern crate termion;
+
 pub mod book {
     use crate::itertools::Itertools;
     use bigdecimal::BigDecimal;
@@ -315,6 +321,8 @@ pub mod book {
     }
 
     impl OrderBook {
+
+        #[cfg(not(target_arch = "wasm32"))]
         pub fn print_debug(&self) {
             use colored::*;
             use termion::clear::All;
@@ -330,6 +338,7 @@ pub mod book {
             }
         }
 
+        #[cfg(not(target_arch = "wasm32"))]
         pub fn print_grouped_debug(&self) {
             use colored::*;
             use termion::clear::All;
@@ -357,7 +366,7 @@ pub mod book {
                 asks_value_total: BigDecimal::zero(),
                 grouped_bids: BTreeMap::new(),
                 grouped_asks: BTreeMap::new(),
-                group_size: 100000.0,
+                group_size: 1.0,
             }
         }
 
