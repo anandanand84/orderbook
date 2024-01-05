@@ -4,11 +4,13 @@ extern crate stock_messages;
 extern crate itertools;
 
 mod book;
+mod book_utils;
 
 use std::{collections::{HashMap}, convert::TryFrom, cell::RefCell};
-use stock_messages::stock_messages::SnapshotMessage;
 extern crate wasm_bindgen;
 
+use bigdecimal::BigDecimal;
+use num_traits::{ToPrimitive, FromPrimitive};
 use wasm_bindgen::prelude::*;
 
 pub use book::book::{OrderBook, OrderType, Level, OrderBookSnapshot};
@@ -104,6 +106,12 @@ pub fn get_grouped_snapshot(book_id: u32, count:usize) -> Vec<f64> {
     return out;
 }
 
+#[wasm_bindgen]
+pub fn get_grouping_bucket(decimal:f64, group_size:f64, bid: bool) -> f64 {
+    let decimal = BigDecimal::from_f64(decimal).unwrap_or_default();
+    return book_utils::book::group(decimal, group_size, bid).to_f64().unwrap_or_default();
+}
+
 
 #[wasm_bindgen]
 pub fn set_group_size(book_id: u32, size: f64) {
@@ -111,21 +119,17 @@ pub fn set_group_size(book_id: u32, size: f64) {
         let mut map = map_ref.borrow_mut();
         let book = map.get_mut(&book_id);
         if let Some(orderbook) = book {
-            orderbook.set_group_size(size);
+            if size != 0.0 {
+                orderbook.set_group_size(size);
+            }
         };
     });
     return result;
-}
-
-#[wasm_bindgen]
-pub fn sum(a:u64, b:u64) -> u64 {
-    return a + b
 }
 
 #[cfg(feature = "console_error_panic_hook")]
 #[wasm_bindgen(start)]
 pub fn start() {
     console_error_panic_hook::set_once();
-    web_sys::console::log_1(&"Starte consoel...".into());
-    eprintln!("Started...");
+    web_sys::console::log_1(&"Started console...".into());
 }

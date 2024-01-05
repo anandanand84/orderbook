@@ -3,16 +3,16 @@ extern crate stock_messages;
 
 #[cfg(not(target_arch = "wasm32"))]
 extern crate colored;
-#[cfg(not(target_arch = "wasm32"))]
-extern crate termion;
 
 pub mod book {
+    use crate::book_utils::book::group;
+    use crate::book_utils::book::value_to_scale;
     use crate::itertools::Itertools;
     use bigdecimal::BigDecimal;
-    use cached::proc_macro::cached;
-    use cached::SizedCache;
+    use bigdecimal::RoundingMode;
     use num_traits::cast::ToPrimitive;
     use num_traits::identities::Zero;
+    use num_traits::FromPrimitive;
     use prost::Message;
     use serde::{Deserialize, Serialize};
     use std::collections::BTreeMap;
@@ -25,43 +25,45 @@ pub mod book {
         BookInfo, LevelUpdate, PriceLevel, Side, SnapshotMessage, Type,
     };
 
-    #[cached(
-        type = "SizedCache<String, f64>",
-        create = "{ SizedCache::with_size(100000) }",
-        convert = r#"{ format!("{}{}{}", price, group_size, group_lower) }"#
-    )]
-    pub fn group_decimal(price: f64, group_size: f64, group_lower: bool) -> f64 {
-        let group = (price / group_size) as u64;
-        let mut current_price = (group as f64) * group_size;
-        if !group_lower && (price > current_price) {
-            current_price += group_size;
-        }
-        let decimal_places = count_decimal_places(group_size);
-        BigDecimal::from(current_price)
-            .with_scale(decimal_places as i64)
-            .to_f64()
-            .unwrap_or(0f64)
-    }
+    // #[cached(
+    //     type = "SizedCache<String, f64>",
+    //     create = "{ SizedCache::with_size(100000) }",
+    //     convert = r#"{ format!("{}{}{}", price, group_size, group_lower) }"#
+    // )]
+    // pub fn group_decimal(price: f64, group_size: f64, group_lower: bool) -> f64 {
+    //     let group = (price / group_size) as u64;
+    //     let mut current_price = (group as f64) * group_size;
+    //     if !group_lower && (price > current_price) {
+    //         current_price += group_size;
+    //     }
+    //     let decimal_places = count_decimal_places(group_size);
+    //     BigDecimal::from_f64(current_price).unwrap_or_default()
+    //         .with_scale(decimal_places as i64)
+    //         .to_f64()
+    //         .unwrap_or(0f64)
+    // }
 
-    #[cached(
-        type = "SizedCache<String, BigDecimal>",
-        create = "{ SizedCache::with_size(100000) }",
-        convert = r#"{ format!("{}{}{}", price, group_size, group_lower) }"#
-    )]
-    pub fn group_decimal_bigdecimal(price: f64, group_size: f64, group_lower: bool) -> BigDecimal {
-        let group = (price / group_size) as u64;
-        let mut current_price = (group as f64) * group_size;
-        if !group_lower && (price > current_price) {
-            current_price += group_size;
-        }
-        let decimal_places = count_decimal_places(group_size);
-        BigDecimal::from(current_price).with_scale(decimal_places as i64)
-    }
+    use std::cmp::max;
 
-    fn count_decimal_places(num: f64) -> usize {
-        let decimal_str = format!("{:.20}", num - num.floor());
-        decimal_str.trim_end_matches('0').len() - 2
-    }
+    // #[cached(
+    //     type = "SizedCache<String, BigDecimal>",
+    //     create = "{ SizedCache::with_size(100000) }",
+    //     convert = r#"{ format!("{}{}{}", price, group_size, group_lower) }"#
+    // )]
+    // pub fn group_decimal_bigdecimal(price: f64, group_size: f64, group_lower: bool) -> BigDecimal {
+    //     let group = (price / group_size) as u64;
+    //     let mut current_price = (group as f64) * group_size;
+    //     if !group_lower && (price > current_price) {
+    //         current_price += group_size;
+    //     }
+    //     let decimal_places = count_decimal_places(group_size);
+    //     BigDecimal::from_f64(current_price).unwrap_or_default().with_scale(decimal_places as i64)
+    // }
+
+    // fn count_decimal_places(num: f64) -> usize {
+    //     let decimal_str = format!("{:.20}", num - num.floor());
+    //     decimal_str.trim_end_matches('0').len() - 2
+    // }
 
     pub type Price = BigDecimal;
     pub type Size = BigDecimal;
@@ -82,9 +84,9 @@ pub mod book {
     impl Level {
         pub fn new(price: f64, size: f64) -> Level {
             Level {
-                price: BigDecimal::from(price),
-                size: BigDecimal::from(size),
-                value: BigDecimal::from(price).mul(BigDecimal::from(size)),
+                price: BigDecimal::from_f64(price).unwrap_or_default(),
+                size: BigDecimal::from_f64(size).unwrap_or_default(),
+                value: BigDecimal::from_f64(price).unwrap_or_default().mul(BigDecimal::from_f64(size).unwrap_or_default()),
             }
         }
     }
@@ -191,13 +193,13 @@ pub mod book {
                 .bids
                 .iter()
                 .fold(BigDecimal::zero(), |total, current| {
-                    total.add(BigDecimal::from(current.price))
+                    total.add(BigDecimal::from_f64(current.price).unwrap_or_default())
                 });
             book.asks_total = snapshot
                 .asks
                 .iter()
                 .fold(BigDecimal::zero(), |total, current| {
-                    total.add(BigDecimal::from(current.price))
+                    total.add(BigDecimal::from_f64(current.price).unwrap_or_default())
                 });
             book.bids_value_total =
                 snapshot
@@ -205,8 +207,8 @@ pub mod book {
                     .iter()
                     .fold(BigDecimal::zero(), |total, current| {
                         total.add(
-                            BigDecimal::from(current.price)
-                                .mul(BigDecimal::from(current.total_size)),
+                            BigDecimal::from_f64(current.price).unwrap_or_default()
+                                .mul(BigDecimal::from_f64(current.total_size).unwrap_or_default()),
                         )
                     });
             book.asks_value_total =
@@ -215,19 +217,19 @@ pub mod book {
                     .iter()
                     .fold(BigDecimal::zero(), |total, current| {
                         total.add(
-                            BigDecimal::from(current.price)
-                                .mul(BigDecimal::from(current.total_size)),
+                            BigDecimal::from_f64(current.price).unwrap_or_default()
+                                .mul(BigDecimal::from_f64(current.total_size).unwrap_or_default()),
                         )
                     });
             book.asks = snapshot
                 .asks
                 .into_iter()
-                .map(|pricelevel| (BigDecimal::from(pricelevel.price), Level::from(pricelevel)))
+                .map(|pricelevel| (BigDecimal::from_f64(pricelevel.price).unwrap_or_default(), Level::from(pricelevel)))
                 .collect();
             book.bids = snapshot
                 .bids
                 .into_iter()
-                .map(|pricelevel| (BigDecimal::from(pricelevel.price), Level::from(pricelevel)))
+                .map(|pricelevel| (BigDecimal::from_f64(pricelevel.price).unwrap_or_default(), Level::from(pricelevel)))
                 .collect();
             book.refresh_groupings();
             book
@@ -321,29 +323,32 @@ pub mod book {
     }
 
     impl OrderBook {
-
         #[cfg(not(target_arch = "wasm32"))]
         pub fn print_debug(&self) {
             use colored::*;
-            use termion::clear::All;
 
-            println!("{}", termion::clear::All);
-            
             for (price, ask) in self.asks.iter().take(100).rev() {
-                println!("{} {} {}", ask.price.to_string().red(), ask.size.to_string().red(), ask.value.to_string().red());
+                println!(
+                    "{} {} {}",
+                    ask.price.to_string().red(),
+                    ask.size.to_string().red(),
+                    ask.value.to_string().red()
+                );
             }
             println!("---------------------");
             for (price, bid) in self.bids.iter().rev().take(100) {
-                println!("{} {} {}", bid.price.to_string().green(), bid.size.to_string().green(), bid.value.to_string().green());
+                println!(
+                    "{} {} {}",
+                    bid.price.to_string().green(),
+                    bid.size.to_string().green(),
+                    bid.value.to_string().green()
+                );
             }
         }
 
         #[cfg(not(target_arch = "wasm32"))]
         pub fn print_grouped_debug(&self) {
             use colored::*;
-            use termion::clear::All;
-
-            println!("{}", termion::clear::All);
             println!("Group Size: {}", self.group_size);
             for (price, size) in self.grouped_asks.iter().take(100).rev() {
                 println!("{} {}", price.to_string().red(), size.to_string().red());
@@ -383,8 +388,7 @@ pub mod book {
             for (_, pricelevel) in &self.asks {
                 let price = pricelevel.price.clone();
                 let size = pricelevel.size.clone();
-                let group_price =
-                    group_decimal_bigdecimal(price.to_f64().unwrap(), group_size, false);
+                let group_price = group(price, group_size, false);
                 let existing_size = grouped_asks
                     .entry(group_price)
                     .or_insert(BigDecimal::zero());
@@ -394,8 +398,7 @@ pub mod book {
             for (_, pricelevel) in &self.bids {
                 let price = pricelevel.price.clone();
                 let size = pricelevel.size.clone();
-                let group_price =
-                    group_decimal_bigdecimal(price.to_f64().unwrap(), group_size, true);
+                let group_price = group(price, group_size, true);
                 let existing_size = grouped_bids
                     .entry(group_price)
                     .or_insert(BigDecimal::zero());
@@ -484,46 +487,48 @@ pub mod book {
             let group_size = self.group_size; // change this to your desired group size
             match order_type {
                 OrderType::Bid => {
-                    self.bids_total = self.bids_total.clone().add(BigDecimal::from(size));
+                    self.bids_total = self.bids_total.clone().add(BigDecimal::from_f64(size).unwrap_or_default());
                     self.bids_value_total = self
                         .bids_value_total
                         .clone()
-                        .add(BigDecimal::from(size).mul(BigDecimal::from(price)));
+                        .add(BigDecimal::from_f64(size).unwrap_or_default().mul(BigDecimal::from_f64(price).unwrap_or_default()));
                     let current_size_at_level = self
                         .bids
-                        .get(&BigDecimal::from(price))
+                        .get(&BigDecimal::from_f64(price).unwrap_or_default())
                         .map(|x| x.size.clone())
                         .unwrap_or(BigDecimal::zero());
+                    let price_decimal = BigDecimal::from_f64(price).unwrap_or_default();
                     self.bids
-                        .insert(BigDecimal::from(price), Level::new(price, size));
-                    let group_price = group_decimal_bigdecimal(price, group_size, true);
+                        .insert(BigDecimal::from_f64(price).unwrap_or_default(), Level::new(price, size));
+                    let group_price = group(price_decimal, group_size, true);
                     let bids_group = self
                         .grouped_bids
                         .entry(group_price)
                         .or_insert(BigDecimal::zero());
                     *bids_group -= current_size_at_level;
-                    *bids_group += BigDecimal::from(size);
+                    *bids_group += BigDecimal::from_f64(size).unwrap_or_default();
                 }
                 OrderType::Ask => {
-                    self.asks_total = self.asks_total.clone().add(BigDecimal::from(size));
+                    self.asks_total = self.asks_total.clone().add(BigDecimal::from_f64(size).unwrap_or_default());
                     self.asks_value_total = self
                         .asks_value_total
                         .clone()
-                        .add(BigDecimal::from(size).mul(BigDecimal::from(price)));
+                        .add(BigDecimal::from_f64(size).unwrap_or_default().mul(BigDecimal::from_f64(price).unwrap_or_default()));
                     let current_size_at_level = self
                         .asks
-                        .get(&BigDecimal::from(price))
+                        .get(&BigDecimal::from_f64(price).unwrap_or_default())
                         .map(|x| x.size.clone())
                         .unwrap_or(BigDecimal::zero());
+                    let price_decimal = BigDecimal::from_f64(price).unwrap_or_default();
                     self.asks
-                        .insert(BigDecimal::from(price), Level::new(price, size));
-                    let group_price = group_decimal_bigdecimal(price, group_size, false);
+                        .insert(price_decimal.clone(), Level::new(price, size));
+                    let group_price = group(price_decimal, group_size, false);
                     let asks_group = self
                         .grouped_asks
                         .entry(group_price)
                         .or_insert(BigDecimal::zero());
                     *asks_group -= current_size_at_level;
-                    *asks_group += BigDecimal::from(size);
+                    *asks_group += BigDecimal::from_f64(size).unwrap_or_default();
                 }
             }
             true
@@ -531,16 +536,16 @@ pub mod book {
 
         pub fn remove_level(&mut self, order_type: OrderType, price: f64, sequence: u64) -> bool {
             self.sequence = sequence;
-            let price_decimal = BigDecimal::from(price);
+            let price_decimal = BigDecimal::from_f64(price).unwrap_or_default();
             match order_type {
                 OrderType::Bid => {
                     let removed_level = self.bids.remove(&price_decimal);
                     if let Some(level) = removed_level {
                         self.bids_total = self.bids_total.clone().sub(level.size.clone());
                         self.bids_value_total = self.bids_value_total.clone().sub(level.value);
-
                         let group_size = self.group_size; // replace with your desired group size
-                        let grouped_price = group_decimal_bigdecimal(price, group_size, true);
+                        let price_decimal = BigDecimal::from_f64(price).unwrap_or_default();
+                        let grouped_price = group(price_decimal, group_size, true);
                         let removed_size = level.size;
                         let grouped_level = self.grouped_bids.entry(grouped_price);
                         match grouped_level {
@@ -563,7 +568,8 @@ pub mod book {
                         self.asks_value_total = self.asks_value_total.clone().sub(level.value);
 
                         let group_size = self.group_size; // replace with your desired group size
-                        let grouped_price = group_decimal_bigdecimal(price, group_size, false);
+                        let price_decimal = BigDecimal::from_f64(price).unwrap_or_default();
+                        let grouped_price = group(price_decimal, group_size, false);
                         let removed_size = level.size;
                         let grouped_level = self.grouped_asks.entry(grouped_price);
                         match grouped_level {
@@ -680,8 +686,8 @@ pub mod book {
                     for (_, level) in self
                         .bids
                         .range((
-                            Included(BigDecimal::from(start_value)),
-                            Included(BigDecimal::from(end_value)),
+                            Included(BigDecimal::from_f64(start_value).unwrap_or_default()),
+                            Included(BigDecimal::from_f64(end_value).unwrap_or_default()),
                         ))
                         .rev()
                     {
@@ -697,8 +703,8 @@ pub mod book {
                 }
                 OrderType::Ask => {
                     for (_, level) in self.asks.range((
-                        Included(BigDecimal::from(start_value)),
-                        Included(BigDecimal::from(end_value)),
+                        Included(BigDecimal::from_f64(start_value).unwrap_or_default()),
+                        Included(BigDecimal::from_f64(end_value).unwrap_or_default()),
                     )) {
                         bid_cum_size = bid_cum_size.add(level.size.clone());
                         bid_cum_value = bid_cum_value.add(level.value.clone());
@@ -715,28 +721,79 @@ pub mod book {
         }
 
         pub fn get_grouped_snapshot_new(&self, count: usize) -> OrderBookSnapshot {
-            let bids = self
-                .grouped_bids
-                .iter()
-                .rev()
-                .map(|(price, size)| SnapshotLevel {
-                    price: price.to_string().parse().unwrap_or(0f64),
-                    total_size: size.to_f64().unwrap_or(0f64),
-                    total_value: 0f64,
-                    relative_size: 0,
+            let zero = BigDecimal::zero();
+            let two = BigDecimal::from_f32(2.0).unwrap();
+            let one = BigDecimal::from_f32(1.0).unwrap();
+            let percentage = BigDecimal::from_f32(10.0/100.0).unwrap();
+            let best_bid = self.grouped_bids.keys().rev().next().unwrap_or(&zero);
+            let best_ask = self.grouped_asks.keys().next().unwrap_or(&zero);
+            let mid_price = (best_bid + best_ask) / two;
+
+            let scale = value_to_scale(self.group_size);
+
+            let mid_price_lower = group(mid_price.clone(), self.group_size, true);
+            let mid_price_higher = group(mid_price.clone(), self.group_size, false);
+
+            let mut bid_groups_to_include = Vec::new();
+            let mut ask_groups_to_include = Vec::new();
+
+            let mut start_bid = mid_price.clone() * (one.clone() - percentage.clone());
+            let mut start_ask = mid_price.clone() * (one.clone() + percentage.clone());
+
+            start_bid = group(start_bid, self.group_size, true);
+            start_ask = group(start_ask, self.group_size, false);
+
+            let grouping_decimal = BigDecimal::from_f64(self.group_size).unwrap_or_default();
+
+            while start_bid <= mid_price_lower {
+                bid_groups_to_include.push(start_bid.clone());
+                start_bid += grouping_decimal.clone();
+                start_bid = start_bid.with_scale_round(scale, RoundingMode::HalfUp);
+            }
+
+            while start_ask >= mid_price_higher {
+                ask_groups_to_include.push(start_ask.clone());
+                start_ask -= grouping_decimal.clone();
+                start_ask = start_ask.with_scale_round(scale, RoundingMode::HalfUp);
+            }
+
+            let bids = bid_groups_to_include.into_iter()
+                .map(|price| {
+                    self.grouped_bids
+                        .get(&price)
+                        .map_or_else(|| SnapshotLevel {
+                            price: price.to_f64().unwrap(),
+                            total_size: 0.0,
+                            total_value: 0.0,
+                            relative_size: 0,
+                        }, |size| SnapshotLevel {
+                            price: price.to_f64().unwrap(),
+                            total_size: size.to_f64().unwrap_or(0.0),
+                            total_value: 0.0,
+                            relative_size: 0,
+                        })
                 })
+                .rev()
                 .take(count)
                 .collect::<Vec<SnapshotLevel>>();
 
-            let asks = self
-                .grouped_asks
-                .iter()
-                .map(|(price, size)| SnapshotLevel {
-                    price: price.to_string().parse().unwrap_or(0f64),
-                    total_size: size.to_f64().unwrap_or(0f64),
-                    total_value: 0f64,
-                    relative_size: 0,
+            let asks = ask_groups_to_include.into_iter()
+                .map(|price| {
+                    self.grouped_asks
+                        .get(&price)
+                        .map_or_else(|| SnapshotLevel {
+                            price: price.to_f64().unwrap(),
+                            total_size: 0.0,
+                            total_value: 0.0,
+                            relative_size: 0,
+                        }, |size| SnapshotLevel {
+                            price: price.to_f64().unwrap(),
+                            total_size: size.to_f64().unwrap_or(0.0),
+                            total_value: 0.0,
+                            relative_size: 0,
+                        })
                 })
+                .rev()
                 .take(count)
                 .collect::<Vec<SnapshotLevel>>();
 
@@ -759,21 +816,21 @@ pub mod book {
         }
 
         pub fn get_grouped_snapshot(&self, count: usize) -> OrderBookSnapshot {
-            let group: f64 = self.group_size;
+            let group_size: f64 = self.group_size;
             let depth_map_percent = 0.0;
             let mut asks = self
                 .asks
                 .iter()
-                .map(|(_x, y)| {
+                .map(|(x, y)| {
                     let snapshot_level: SnapshotLevel = y.clone().into();
-                    snapshot_level
+                    (x, snapshot_level)
                 })
-                .group_by(|level| group_decimal(level.price, group, false))
+                .group_by(|level| group(level.0.clone(), group_size, false))
                 .into_iter()
                 .map(|(grouped_price, grouped_levels)| {
                     let mut level = SnapshotLevel::new();
-                    level.price = grouped_price;
-                    grouped_levels.fold(&mut level, |level, current_level| {
+                    level.price = grouped_price.to_f64().unwrap_or_default();
+                    grouped_levels.fold(&mut level, |level, (_, current_level)| {
                         level.total_size = level.total_size + current_level.total_size;
                         level.total_value = level.total_value + current_level.total_value;
                         level
@@ -787,16 +844,16 @@ pub mod book {
                 .bids
                 .iter()
                 .rev()
-                .map(|(_x, y)| {
+                .map(|(x, y)| {
                     let snapshot_level: SnapshotLevel = y.clone().into();
-                    snapshot_level
+                    (x, snapshot_level)
                 })
-                .group_by(|level| group_decimal(level.price, group, true))
+                .group_by(|level| group(level.0.clone(), group_size, true))
                 .into_iter()
                 .map(|(grouped_price, grouped_levels)| {
                     let mut level = SnapshotLevel::new();
-                    level.price = grouped_price;
-                    grouped_levels.fold(&mut level, |level, current_level| {
+                    level.price = grouped_price.to_f64().unwrap_or_default();
+                    grouped_levels.fold(&mut level, |level, (_, current_level)| {
                         level.total_size = level.total_size + current_level.total_size;
                         level.total_value = level.total_value + current_level.total_value;
                         level
@@ -865,9 +922,13 @@ pub mod book {
 
 #[cfg(test)]
 mod tests {
+    use crate::book_utils::book::group;
+
     // Note this useful idiom: importing names from outer (for mod tests) scope.
-    use super::book::{group_decimal, Level, OrderBook, OrderType};
+    use super::book::{Level, OrderBook, OrderType};
+    use bigdecimal::BigDecimal;
     use bytes::BytesMut;
+    use num_traits::FromPrimitive;
     use num_traits::cast::ToPrimitive;
     use prost::Message;
     use std::convert::TryInto;
@@ -896,18 +957,6 @@ mod tests {
 
     #[test]
     fn test_group_decimal_1() {
-        let result = group_decimal(6702.01, 1.0, false);
-        assert_eq!(result, 6703.00);
-
-        let result = group_decimal(6702.01, 1.0, true);
-        assert_eq!(result, 6702.00);
-
-        let result = group_decimal(6702.01, 0.01, false);
-        assert_eq!(result, 6702.01);
-
-        let result = group_decimal(6702.01, 0.01, true);
-        assert_eq!(result, 6702.01);
-
         let cases = vec![
             //value, grouping, result,
             (4.324210, 0.5, 4.00, true),
@@ -923,8 +972,11 @@ mod tests {
         ];
 
         for case in &cases {
-            let q = group_decimal(case.0, case.1, case.3);
-            assert_eq!(q, case.2);
+            let a = BigDecimal::from_f64(case.0).unwrap_or_default();
+            let b = BigDecimal::from_f64(case.1).unwrap_or_default();
+            let c = BigDecimal::from_f64(case.2).unwrap_or_default();
+            let q = group(a, case.1, case.3);
+            assert_eq!(q, c);
         }
     }
 
@@ -933,7 +985,7 @@ mod tests {
         let mut book = OrderBook::new("instrument", 100);
         create_asks(&mut book);
         create_bids(&mut book);
-        print_book(book, 50 as usize);
+        // print_book(book, 50 as usize);
     }
 
     fn get_first_ask_and_bid(book: &OrderBook) -> ((f64, f64), (f64, f64)) {
@@ -1034,7 +1086,7 @@ mod tests {
 
         book = buf.clone().try_into().unwrap();
 
-        print_book(book.clone(), 50 as usize);
+        // print_book(book.clone(), 50 as usize);
 
         let bid_level = book
             .bids

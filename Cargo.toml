@@ -14,7 +14,7 @@ bytes = "0.4.11"
 bincode = "1.1.2"
 prost = "0.5.0"
 num-traits = "0.2.8"
-bigdecimal = "0.1.0"
+bigdecimal = "0.4.2"
 stock_messages = { git = "https://github.com/anandanand84/stock_messages" }
 lazy_static = "1.4.0"
 serde = { version = "1.0.102", features = ["derive"] }
