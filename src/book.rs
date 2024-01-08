@@ -734,30 +734,42 @@ pub mod book {
             let mid_price_lower = group(mid_price.clone(), self.group_size, true);
             let mid_price_higher = group(mid_price.clone(), self.group_size, false);
 
-            let mut bid_groups_to_include = Vec::new();
-            let mut ask_groups_to_include = Vec::new();
-
-            let mut start_bid = mid_price.clone() * (one.clone() - percentage.clone());
-            let mut start_ask = mid_price.clone() * (one.clone() + percentage.clone());
-
-            start_bid = group(start_bid, self.group_size, true);
-            start_ask = group(start_ask, self.group_size, false);
+            let mut min_bid = mid_price.clone() * (one.clone() - percentage.clone());
+            let mut max_ask = mid_price.clone() * (one.clone() + percentage.clone());
 
             let grouping_decimal = BigDecimal::from_f64(self.group_size).unwrap_or_default();
 
-            while start_bid <= mid_price_lower {
-                bid_groups_to_include.push(start_bid.clone());
-                start_bid += grouping_decimal.clone();
-                start_bid = start_bid.with_scale_round(scale, RoundingMode::HalfUp);
+            min_bid = group(min_bid, self.group_size, true);
+            max_ask = group(max_ask, self.group_size, false);
+
+            let mut bid_groups_to_include = Vec::with_capacity(count as usize);
+            let mut ask_groups_to_include = Vec::with_capacity(count as usize);
+
+            let mut bid = mid_price_lower;
+            let mut ask = mid_price_higher;
+            for _ in 0..count {
+                    bid = bid.with_scale_round(scale, RoundingMode::HalfUp);
+                    bid_groups_to_include.push(bid.clone());
+                    bid -= &grouping_decimal;
+
+                    ask = ask.with_scale_round(scale, RoundingMode::HalfUp);
+                    ask_groups_to_include.push(ask.clone());
+                    ask += &grouping_decimal;
             }
 
-            while start_ask >= mid_price_higher {
-                ask_groups_to_include.push(start_ask.clone());
-                start_ask -= grouping_decimal.clone();
-                start_ask = start_ask.with_scale_round(scale, RoundingMode::HalfUp);
-            }
+            // while max_bid <= mid_price_lower {
+            //     bid_groups_to_include.push(max_bid.clone());
+            //     max_bid += grouping_decimal.clone();
+            //     max_bid = max_bid.with_scale_round(scale, RoundingMode::HalfUp);
+            // }
 
-            let bids = bid_groups_to_include.into_iter()
+            // while min_ask >= mid_price_higher {
+            //     ask_groups_to_include.push(min_ask.clone());
+            //     min_ask -= grouping_decimal.clone();
+            //     min_ask = min_ask.with_scale_round(scale, RoundingMode::HalfUp);
+            // }
+
+            let bids = bid_groups_to_include.into_iter().rev()
                 .map(|price| {
                     self.grouped_bids
                         .get(&price)
@@ -793,7 +805,6 @@ pub mod book {
                             relative_size: 0,
                         })
                 })
-                .rev()
                 .take(count)
                 .collect::<Vec<SnapshotLevel>>();
 
