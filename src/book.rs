@@ -611,6 +611,50 @@ pub mod book {
             (bids, asks)
         }
 
+        pub fn get_heatmap_snapshot_levels(&self, total_count: usize, step_percent: f64) -> Vec<f64> {
+            let highest_bid = self.bids.keys().next_back().cloned().unwrap_or_else(|| BigDecimal::from(0));
+            let lowest_ask = self.asks.keys().next().cloned().unwrap_or_else(|| BigDecimal::from(0));
+            let mid = (highest_bid + lowest_ask) / BigDecimal::from(2);
+    
+            // Calculate percentage range bounds
+            let percent_step = BigDecimal::from_f64(step_percent / 100.0).unwrap_or_default();
+            let max_range = mid.clone() * percent_step.clone() * BigDecimal::from_f64(total_count as f64).unwrap_or_default();
+    
+            let bid_lower_bound = mid.clone() - max_range.clone();
+            let ask_upper_bound = mid.clone() + max_range;
+    
+            // Prepare vectors for bid and ask sizes
+            let mut bid_sizes: Vec<f64> = vec![0.0; total_count];
+            let mut ask_sizes: Vec<f64> = vec![0.0; total_count];
+    
+            // Populate the bid_sizes and ask_sizes vectors
+            for (price, level) in self.bids.range(..=bid_lower_bound).rev() {
+                let distance = mid.clone() - price;
+                let steps_away = (distance / (mid.clone() * percent_step.clone())).to_usize().unwrap_or(0);
+                if steps_away < total_count {
+                    bid_sizes[steps_away] += level.size.to_f64().unwrap_or(0.0);
+                } else {
+                    break; // Stop iterating once we exceed the range
+                }
+            }
+    
+            for (price, level) in self.asks.range(..=ask_upper_bound) {
+                let distance = price - &mid;
+                let steps_away = (distance / (mid.clone() * percent_step.clone())).to_usize().unwrap_or(0);
+                if steps_away < total_count {
+                    ask_sizes[steps_away] += level.size.to_f64().unwrap_or(0.0);
+                } else {
+                    break; // Stop iterating once we exceed the range
+                }
+            }
+    
+            // Combine bid and ask sizes into a single vector for the heatmap
+            bid_sizes.reverse(); // Reverse bids to have them in the correct order from mid to outer
+            bid_sizes.extend(ask_sizes);
+    
+            bid_sizes
+        }
+
         pub fn get_grouped_levels(&self, count: i32) -> (Vec<Level>, Vec<Level>) {
             let asks = self
                 .grouped_asks
