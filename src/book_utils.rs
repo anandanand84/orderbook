@@ -33,13 +33,13 @@ pub mod book {
         let decimal = decimal.with_scale_round(4, RoundingMode::HalfUp); // this is to round the decimal imperfections like 100.30000001, 100.299999 for 100.3
         let rounding_mode: RoundingMode = if group_lower { RoundingMode::Floor } else { RoundingMode::Ceiling };
         let div = (decimal.clone() / group_decimal.clone()).with_scale_round(0, RoundingMode::Floor);
-        println!("{} / {} = {}", decimal, group_decimal, div);
+        // println!("{} / {} = {}", decimal, group_decimal, div);
         let calculated = (div * group_decimal.clone()).with_scale_round(scale, RoundingMode::Floor);
         if calculated == decimal {
-            println!("{} == {}", calculated, decimal);
+            // println!("{} == {}", calculated, decimal);
             return calculated;
         }
-        println!("{} != {}", calculated, decimal);
+        // println!("{} != {}", calculated, decimal);
         let rounded_value = (calculated + if group_lower { BigDecimal::zero() } else { group_decimal }).with_scale_round(scale, rounding_mode);
         return rounded_value;
     }
